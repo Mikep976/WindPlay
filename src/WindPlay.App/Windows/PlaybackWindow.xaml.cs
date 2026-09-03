@@ -1,6 +1,7 @@
 using AirPlay.Core2.Models;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Windows.Graphics;
 using Windows.Media.Core;
@@ -54,8 +55,8 @@ public sealed partial class PlaybackWindow : Window
         if (settings.FullScreenOnConnect)
             SetFullScreen(true);
 
-        KeyboardAccelerators.Add(CreateAccelerator(global::Windows.System.VirtualKey.F11, ToggleFullScreen));
-        KeyboardAccelerators.Add(CreateAccelerator(global::Windows.System.VirtualKey.Escape, ExitFullScreen));
+        Root.KeyboardAccelerators.Add(CreateAccelerator(global::Windows.System.VirtualKey.F11, ToggleFullScreen));
+        Root.KeyboardAccelerators.Add(CreateAccelerator(global::Windows.System.VirtualKey.Escape, ExitFullScreen));
     }
 
     public void AttachVideo(MediaSource source)

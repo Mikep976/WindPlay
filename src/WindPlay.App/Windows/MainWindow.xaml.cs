@@ -27,7 +27,7 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleBar);
         Title = "WindPlay";
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(1120, 780));
+        AppWindow.Resize(new global::Windows.Graphics.SizeInt32(1120, 780));
         string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "WindPlay.ico");
         if (File.Exists(iconPath))
             AppWindow.SetIcon(iconPath);
