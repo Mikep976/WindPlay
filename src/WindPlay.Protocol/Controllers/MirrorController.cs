@@ -13,8 +13,6 @@ public class MirrorController : IDisposable
 
     public ushort DataPort { get; }
 
-    public ushort TimingPort { get; } = 7010;
-
     public Size? FrameSize => _dataConnection.FrameSize;
 
     public event EventHandler<Size>? FrameSizeChanged

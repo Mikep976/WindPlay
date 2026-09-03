@@ -315,7 +315,6 @@ public partial class RtspConnection
                             }
                         }
                     },
-                    { "timingPort", (int)_deviceSession!.AudioController!.TimingPort },
                 };
 
             }
@@ -342,7 +341,6 @@ public partial class RtspConnection
                             }
                         }
                     },
-                    { "timingPort", (int)_deviceSession!.MirrorController!.TimingPort },
                 };
             }
 
@@ -381,8 +379,18 @@ public partial class RtspConnection
             };
 
             _deviceSession.DecrypteAesKey(_keyMsg, (byte[])ekeyValue.ToObject());
+            _deviceSession.BeginTiming();
 
             SessionPaired?.Invoke(this, _deviceSession);
+
+            NSDictionary timingResponse = new()
+            {
+                { "timingPort", (int)_deviceSession.TimingPort },
+                { "eventPort", 0 },
+            };
+            byte[] responseBytes = BinaryPropertyListWriter.WriteToArray(timingResponse);
+            responseMessage.Headers.Add("Content-Type", "application/x-apple-binary-plist");
+            await responseMessage.WriteAsync(responseBytes, 0, responseBytes.Length, cancellationToken);
         }
     }
 

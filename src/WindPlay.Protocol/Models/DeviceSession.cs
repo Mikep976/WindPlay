@@ -1,4 +1,5 @@
 ﻿using AirPlay.Core2.Controllers;
+using AirPlay.Core2.Connections.Audio;
 using AirPlay.Core2.Crypto;
 using AirPlay.Core2.Extensions;
 using AirPlay.Core2.Models.Messages;
@@ -16,6 +17,7 @@ public class DeviceSession(
     ILogger? logger = null) : IDisposable
 {
     private readonly byte[] _decryptedAesKey = new byte[16];
+    private readonly AudioTimingConnection _timingConnection = new(remoteAddress, timingPort);
     private Action<double>? _remoteSetVolumeAction;
 
     public event EventHandler? AudioControllerCreated;
@@ -48,6 +50,8 @@ public class DeviceSession(
 
     public MirrorController? MirrorController { get; private set; }
 
+    public ushort TimingPort => _timingConnection.LocalPort;
+
     public event EventHandler<MediaProgressInfo>? MediaProgressInfoReceived;
     public event EventHandler<MediaWorkInfo>? MediaWorkInfoReceived;
     public event EventHandler<byte[]>? MediaCoverReceived;
@@ -64,8 +68,7 @@ public class DeviceSession(
             audioFormat,
             (_decryptedAesKey, aesIv, ecdhShared),
             remoteAddress,
-            controlPort,
-            timingPort)
+            controlPort)
         {
             LatencyMin = latencyMin,
             LatencyMax = latencyMax
@@ -123,7 +126,10 @@ public class DeviceSession(
     {
         CloseAudioController();
         CloseMirrorController();
+        _timingConnection.Dispose();
     }
+
+    public void BeginTiming() => _timingConnection.BeginMessageLoopWorker();
     
     public void Disconnect() => RequestedDisconnecet = true;
 

@@ -12,14 +12,11 @@ public class AudioController : IDisposable
 
     private readonly AudioDataConnection _dataConnection;
     private readonly AudioControlConnection _controlConnection;
-    private readonly AudioTimingConnection _timingConnection;
 
     public ushort ControlPort { get; }
-    public ushort TimingPort { get; }
     public ushort DataPort { get; }
 
     public ushort RemoteControlPort { get; }
-    public ushort RemoteTimingPort { get; }
     public AudioFormat AudioFormat { get; }
 
     public int? LatencyMin { get; init; }
@@ -35,19 +32,15 @@ public class AudioController : IDisposable
         AudioFormat audioFormat,
         AesSecret aesSecret,
         IPAddress remoteAddress,
-        ushort remoteControlPort,
-        ushort remoteTimingPort)
+        ushort remoteControlPort)
     {
         AudioFormat = audioFormat;
         RemoteControlPort = remoteControlPort;
-        RemoteTimingPort = remoteTimingPort;
 
         _dataConnection = new AudioDataConnection(audioFormat, aesSecret, remoteAddress);
         _controlConnection = new AudioControlConnection(remoteAddress, remoteControlPort);
-        _timingConnection = new AudioTimingConnection(remoteAddress, remoteTimingPort);
         DataPort = _dataConnection.LocalPort;
         ControlPort = _controlConnection.LocalPort;
-        TimingPort = _timingConnection.LocalPort;
 
         _controlConnection.SyncDataReceived += (_, data) => _dataConnection.HandleSyncData(data);
         _controlConnection.ResentDataReceived += (_, data) => _dataConnection.HandleResendBuffer(data);
@@ -58,14 +51,12 @@ public class AudioController : IDisposable
     {
         _controlConnection?.BeginControlMessageLoopWorker();
         _dataConnection?.BeginDataMessageLoopWorker();
-        _timingConnection.BeginMessageLoopWorker();
     }
 
     public void EndConnectionWorkers()
     {
         _controlConnection?.EndControlMessageLoopWorker();
         _dataConnection?.EndDataMessageLoopWorker();
-        _timingConnection.EndMessageLoopWorker();
     }
 
     public void Flush(int nextSeq) => _dataConnection?.Flush(nextSeq);
@@ -74,6 +65,5 @@ public class AudioController : IDisposable
     {
         _dataConnection.Dispose();
         _controlConnection.Dispose();
-        _timingConnection.Dispose();
     }
 }
