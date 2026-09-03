@@ -13,8 +13,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- The upstream AAC decoder loads an x64-only FDK binary. WindPlay advertises
-         managed ALAC/PCM only so the entire receive path remains native on Arm64. -->
+    <!-- Exclude the upstream Intel-only codec wrappers. WindPlay uses its bounded
+         ARM64 FFmpeg shim through NativeAudioDecoder instead. -->
     <Compile Remove="Decoders\AACDecoder.cs" />
     <Compile Remove="Decoders\ALACDecoder.cs" />
     <Compile Remove="Utils\LibraryLoader.cs" />
@@ -28,6 +28,10 @@
     <None Remove="Resources\table_s7.bin" />
     <None Remove="Resources\table_s8.bin" />
     <None Remove="Resources\table_s9.bin" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WindPlay.Protocol.Tests" />
   </ItemGroup>
 
   <ItemGroup>

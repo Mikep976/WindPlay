@@ -12,7 +12,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 
 using AesSecret = (byte[] DecryptedAesKey, byte[] AesIv, byte[] EcdhShared);
-using ResendRequest = (ushort MissingSeqNum, ushort Count, ulong Timestamp);
+using ResendRequest = (ushort MissingSeqNum, ushort Count);
 using SyncData = (ulong SyncTime, ulong SyncTimestamp);
 
 namespace AirPlay.Core2.Connections.Audio;
@@ -32,7 +32,6 @@ public class AudioDataConnection : IDisposable
     private readonly Lock _cipherLock = new();
     private readonly Lock _syncLock = new();
 
-    private bool _resentBeforeDequeue;
     private SyncData _syncData;
     private bool _hasSyncData;
 
@@ -100,8 +99,7 @@ public class AudioDataConnection : IDisposable
         {
             InitAesCbcCipher();
 
-            if (_raopBuffer.Queue(_aesCbcDecrypt, _decoder, buffer, (ushort)buffer.Length) == 1)
-                _resentBeforeDequeue = true;
+            _ = _raopBuffer.Queue(_aesCbcDecrypt, _decoder, buffer, (ushort)buffer.Length);
         }
     }
 
@@ -154,7 +152,7 @@ public class AudioDataConnection : IDisposable
                     syncData = _syncData;
                 }
 
-                while ((audiobuf = _raopBuffer.Dequeue(ref timestamp, _resentBeforeDequeue)) != null)
+                while ((audiobuf = _raopBuffer.Dequeue(ref timestamp, noResend: false)) != null)
                 {
                     uint relativeTimestamp = unchecked(timestamp - (uint)syncData.SyncTimestamp);
                     PcmAudioData pcmData = new()
@@ -165,8 +163,6 @@ public class AudioDataConnection : IDisposable
                     };
 
                     DataReceived?.Invoke(this, pcmData);
-
-                    _resentBeforeDequeue = false;
                 }
 
                 CheckAndRequestResend();
@@ -198,23 +194,28 @@ public class AudioDataConnection : IDisposable
 
     private void CheckAndRequestResend()
     {
-        ushort seqnum;
-
-        for (seqnum = _raopBuffer.FirstSeqNum; SeqNumCmp(seqnum, _raopBuffer.LastSeqNum) < 0; seqnum++)
+        ResendRequest? request = null;
+        lock (_raopBuffer)
         {
-            var entry = _raopBuffer.Entries[seqnum % RaopBuffer.RAOP_BUFFER_LENGTH];
-            if (entry.Available)
-                break;
+            ushort seqnum;
+
+            for (seqnum = _raopBuffer.FirstSeqNum; SeqNumCmp(seqnum, _raopBuffer.LastSeqNum) < 0; seqnum++)
+            {
+                var entry = _raopBuffer.Entries[seqnum % RaopBuffer.RAOP_BUFFER_LENGTH];
+                if (entry.Available)
+                    break;
+            }
+
+            if (SeqNumCmp(seqnum, _raopBuffer.FirstSeqNum) != 0)
+            {
+                int count = unchecked((ushort)(seqnum - _raopBuffer.FirstSeqNum));
+                request = (_raopBuffer.FirstSeqNum, (ushort)count);
+            }
         }
 
-        if (SeqNumCmp(seqnum, _raopBuffer.FirstSeqNum) == 0)
-            return;
-
-        int count = seqnum - _raopBuffer.FirstSeqNum;
-        ulong timestamp = _raopBuffer.Entries[_raopBuffer.FirstSeqNum % RaopBuffer.RAOP_BUFFER_LENGTH].TimeStamp;
-
-        ResendRequested?.Invoke(this, (_raopBuffer.FirstSeqNum, (ushort)count, timestamp));
+        if (request.HasValue)
+            ResendRequested?.Invoke(this, request.Value);
     }
 
-    private static short SeqNumCmp(ushort s1, ushort s2) => (short)(s1 - s2);
+    private static short SeqNumCmp(ushort s1, ushort s2) => unchecked((short)(s1 - s2));
 }

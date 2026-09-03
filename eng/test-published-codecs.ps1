@@ -93,7 +93,7 @@ try {
     )
 
     foreach ($profile in $profiles) {
-        $decoder = $create.Invoke($profile[0], 44_100, 2, 16, $profile[1])
+        $decoder = $create.Invoke($profile[0], 44100, 2, 16, $profile[1])
         if ($decoder -eq [IntPtr]::Zero) {
             throw "Native decoder initialization failed for format 0x$($profile[0].ToString('X8'))."
         }
@@ -101,7 +101,7 @@ try {
         $destroy.Invoke($decoder)
     }
 
-    $unexpectedDecoder = $create.Invoke(0x00040000, 48_000, 2, 16, 352)
+    $unexpectedDecoder = $create.Invoke(0x00040000, 48000, 2, 16, 352)
     if ($unexpectedDecoder -ne [IntPtr]::Zero) {
         $destroy.Invoke($unexpectedDecoder)
         throw 'Native decoder accepted a profile outside the advertised AirPlay boundary.'

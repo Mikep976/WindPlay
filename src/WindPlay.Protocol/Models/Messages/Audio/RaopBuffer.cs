@@ -2,7 +2,8 @@
 
 public class RaopBuffer
 {
-    public const int RAOP_BUFFER_LENGTH = 1024; //512;
+    public const int RAOP_BUFFER_LENGTH = 256;
+    public const int MAXIMUM_REORDER_WAIT_PACKETS = 16;
 
     public bool IsEmpty { get; set; }
     public ushort FirstSeqNum { get; set; }

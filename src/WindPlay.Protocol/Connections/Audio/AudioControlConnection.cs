@@ -5,7 +5,7 @@ using System.Net;
 using System.Net.Sockets;
 
 using SyncData = (ulong SyncTime, ulong SyncTimestamp);
-using ResendRequest = (ushort MissingSeqNum, ushort Count, ulong Timestamp);
+using ResendRequest = (ushort MissingSeqNum, ushort Count);
 
 namespace AirPlay.Core2.Connections.Audio;
 
@@ -55,25 +55,24 @@ public class AudioControlConnection : IDisposable
         {
             _controlSeqNum++;
 
-            byte[] packet =
-            [
-                0x80,                          // RTP Version + Marker (Marker=1)
-                0x55 | 0x80,                   // Payload type 85 + Marker bit
-                (byte)(_controlSeqNum >> 8),
-                (byte)_controlSeqNum,
-                (byte)(resendRequest.Timestamp >> 24),
-                (byte)(resendRequest.Timestamp >> 16),
-                (byte)(resendRequest.Timestamp >> 8),
-                (byte)(resendRequest.Timestamp),
-                (byte)(resendRequest.MissingSeqNum >> 8),
-                (byte)resendRequest.MissingSeqNum,
-                (byte)(resendRequest.Count >> 8),
-                (byte)resendRequest.Count,
-            ];
+            byte[] packet = CreateResendPacket(_controlSeqNum, resendRequest.MissingSeqNum, resendRequest.Count);
 
             _udpListener.Send(packet, 0, packet.Length, SocketFlags.None);
         }
     }
+
+    internal static byte[] CreateResendPacket(ushort controlSequence, ushort missingSequence, ushort count)
+        =>
+        [
+            0x80,                          // RTP Version + Marker (Marker=1)
+            0x55 | 0x80,                   // Payload type 85 + Marker bit
+            (byte)(controlSequence >> 8),
+            (byte)controlSequence,
+            (byte)(missingSequence >> 8),
+            (byte)missingSequence,
+            (byte)(count >> 8),
+            (byte)count,
+        ];
 
     private async Task ControlMessageLoopWorker(CancellationToken cancellationToken)
     {
