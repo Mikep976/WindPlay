@@ -5,6 +5,7 @@ using AirPlay.Core2.Utils;
 using Claunia.PropertyList;
 using Microsoft.Extensions.Logging;
 using Rebex.Security.Cryptography;
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using static AirPlay.Core2.Models.Messages.Rtsp.RtspResponseMessage;
@@ -13,6 +14,8 @@ namespace AirPlay.Core2.Connections;
 
 public partial class RtspConnection
 {
+    private const int MaximumSetupBodyBytes = 256 * 1024;
+
     private async Task OnGetInfoRequested(RtspResponseMessage responseMessage, CancellationToken cancellationToken)
     {
         Dictionary<string, object> infoDictionary = new()
@@ -273,33 +276,55 @@ public partial class RtspConnection
             return;
         }
 
-        NSDictionary nsDict = (PropertyListParser.Parse(requestMessage.Body) as NSDictionary)!;
+        if (requestMessage.Body.Length is 0 or > MaximumSetupBodyBytes ||
+            PropertyListParser.Parse(requestMessage.Body) is not NSDictionary nsDict)
+        {
+            responseMessage.Status = StatusCode.BADREQUEST;
+            return;
+        }
+
         Dictionary<string, NSObject> plistDict = nsDict.ToDictionary();
 
         if (plistDict.TryGetValue("streams", out NSObject? nSObject))
         {
-            var stream = (Dictionary<string, object>)((object[])nSObject.ToObject())[0];
-            short type = Convert.ToInt16((int)stream["type"]);
+            if (_deviceSession is null ||
+                nSObject.ToObject() is not object[] { Length: > 0 } streams ||
+                streams[0] is not Dictionary<string, object> stream ||
+                !stream.TryGetValue("type", out object? typeValue) ||
+                !TryGetInt32(typeValue, out int type))
+            {
+                responseMessage.Status = StatusCode.BADREQUEST;
+                return;
+            }
 
             NSDictionary? keyValuePairs = null;
 
             if (type == 96)
             {
-                if (!stream.TryGetValue("audioFormat", out object? audioFormatValue)) return;
-                if (!stream.TryGetValue("controlPort", out object? controlPortValue)) return;
+                if (_deviceSession.AudioController is not null ||
+                    !stream.TryGetValue("audioFormat", out object? audioFormatValue) ||
+                    !TryGetInt32(audioFormatValue, out int audioFormat) ||
+                    !stream.TryGetValue("controlPort", out object? controlPortValue) ||
+                    !TryGetUInt16(controlPortValue, out ushort controlPort))
+                {
+                    responseMessage.Status = StatusCode.BADREQUEST;
+                    return;
+                }
 
                 stream.TryGetValue("latencyMin", out object? latencyMinValue);
                 stream.TryGetValue("latencyMax", out object? latencyMaxValue);
+                int? latencyMin = TryGetInt32(latencyMinValue, out int parsedLatencyMin) ? parsedLatencyMin : null;
+                int? latencyMax = TryGetInt32(latencyMaxValue, out int parsedLatencyMax) ? parsedLatencyMax : null;
 
-                _deviceSession?.CreateAudioController
+                _deviceSession.CreateAudioController
                 (
-                    Convert.ToUInt16((int)controlPortValue),
-                    (AudioFormat)(int)audioFormatValue,
-                    latencyMinValue is int latencyMin ? latencyMin : null,
-                    latencyMaxValue is int latencyMax ? latencyMax : null
+                    controlPort,
+                    (AudioFormat)audioFormat,
+                    latencyMin,
+                    latencyMax
                 );
 
-                _deviceSession?.AudioController?.BeginConnectionWorkers();
+                _deviceSession.AudioController?.BeginConnectionWorkers();
 
                 keyValuePairs = new()
                 {
@@ -320,13 +345,19 @@ public partial class RtspConnection
             }
             else if (type == 110)
             {
-                if (!stream.TryGetValue("streamConnectionID", out object? streamConnectionIDValue)) return;
+                if (_deviceSession.MirrorController is not null ||
+                    !stream.TryGetValue("streamConnectionID", out object? streamConnectionIDValue) ||
+                    !TryGetStreamConnectionId(streamConnectionIDValue, out string streamConnectionId))
+                {
+                    responseMessage.Status = StatusCode.BADREQUEST;
+                    return;
+                }
 
                 stream.TryGetValue("latencyMs", out object? latencyMsValue);
                 stream.TryGetValue("timestampinfo", out object? timestampinfoValue);
 
-                _deviceSession?.CreateMirrorController(unchecked((ulong)(long)streamConnectionIDValue).ToString());
-                _deviceSession?.MirrorController?.BeginConnectionWorkers();
+                _deviceSession.CreateMirrorController(streamConnectionId);
+                _deviceSession.MirrorController?.BeginConnectionWorkers();
 
                 keyValuePairs = new()
                 {
@@ -343,6 +374,11 @@ public partial class RtspConnection
                     },
                 };
             }
+            else
+            {
+                responseMessage.Status = StatusCode.BADREQUEST;
+                return;
+            }
 
             if (keyValuePairs is not null)
             {
@@ -354,43 +390,118 @@ public partial class RtspConnection
         }
         else
         {
-            if (!plistDict.TryGetValue("eiv", out NSObject? eivValue)) return;
-            if (!plistDict.TryGetValue("ekey", out NSObject? ekeyValue)) return;
-            if (!plistDict.TryGetValue("timingPort", out NSObject? timingPortValue)) return;
-            if (!plistDict.TryGetValue("name", out NSObject? nameValue)) return;
-            if (!plistDict.TryGetValue("macAddress", out NSObject? macAddressValue)) return;
+            if (!plistDict.TryGetValue("deviceID", out NSObject? deviceIdentifierValue))
+                plistDict.TryGetValue("macAddress", out deviceIdentifierValue);
+
+            if (_deviceSession is not null ||
+                !plistDict.TryGetValue("eiv", out NSObject? eivValue) || eivValue.ToObject() is not byte[] { Length: 16 } aesIv ||
+                !plistDict.TryGetValue("ekey", out NSObject? ekeyValue) || ekeyValue.ToObject() is not byte[] { Length: 72 } encryptedAesKey ||
+                !plistDict.TryGetValue("timingPort", out NSObject? timingPortValue) || !TryGetUInt16(timingPortValue.ToObject(), out ushort timingPort) ||
+                !plistDict.TryGetValue("name", out NSObject? nameValue) || nameValue.ToObject() is not string { Length: > 0 and <= 256 } name ||
+                deviceIdentifierValue?.ToObject() is not string { Length: > 0 and <= 64 } deviceIdentifier)
+            {
+                responseMessage.Status = StatusCode.BADREQUEST;
+                return;
+            }
 
             plistDict.TryGetValue("model", out NSObject? modelValue);
             plistDict.TryGetValue("isScreenMirroringSession", out NSObject? isScreenMirroringSessionValue);
 
-            _deviceSession = new(
-                (byte[])eivValue.ToObject(),
+            string? model = modelValue?.ToObject() as string;
+            if (model?.Length > 256)
+            {
+                responseMessage.Status = StatusCode.BADREQUEST;
+                return;
+            }
+
+            DeviceSession deviceSession = new(
+                aesIv,
                 _ecdhShared,
-                Convert.ToUInt16((int)timingPortValue.ToObject()),
+                timingPort,
                 _endPoint.Address,
                 _loggerFactory?.CreateLogger<DeviceSession>())
             {
-                DeviceMacAddress = (string)macAddressValue.ToObject(),
-                DeviceDisplayName = (string)nameValue.ToObject(),
-                DeviceModel = modelValue?.ToObject() as string,
-                DacpId = _DACPID!,
-                ActiveRemote = _ActiveRemote!,
+                DeviceMacAddress = deviceIdentifier,
+                DeviceDisplayName = name,
+                DeviceModel = model,
+                DacpId = _DACPID ?? string.Empty,
+                ActiveRemote = _ActiveRemote ?? string.Empty,
                 IsMirrorSession = isScreenMirroringSessionValue?.ToObject() is bool isScreenMirroringSession && isScreenMirroringSession
             };
 
-            _deviceSession.DecrypteAesKey(_keyMsg, (byte[])ekeyValue.ToObject());
-            _deviceSession.BeginTiming();
+            try
+            {
+                deviceSession.DecrypteAesKey(_keyMsg, encryptedAesKey);
+                deviceSession.BeginTiming();
+            }
+            catch
+            {
+                deviceSession.Dispose();
+                throw;
+            }
 
-            SessionPaired?.Invoke(this, _deviceSession);
+            _deviceSession = deviceSession;
+
+            SessionPaired?.Invoke(this, deviceSession);
 
             NSDictionary timingResponse = new()
             {
-                { "timingPort", (int)_deviceSession.TimingPort },
+                { "timingPort", (int)deviceSession.TimingPort },
                 { "eventPort", 0 },
             };
             byte[] responseBytes = BinaryPropertyListWriter.WriteToArray(timingResponse);
             responseMessage.Headers.Add("Content-Type", "application/x-apple-binary-plist");
             await responseMessage.WriteAsync(responseBytes, 0, responseBytes.Length, cancellationToken);
+        }
+    }
+
+    private static bool TryGetInt32(object? value, out int result)
+    {
+        switch (value)
+        {
+            case byte number: result = number; return true;
+            case sbyte number: result = number; return true;
+            case short number: result = number; return true;
+            case ushort number: result = number; return true;
+            case int number: result = number; return true;
+            case uint number when number <= int.MaxValue: result = (int)number; return true;
+            case long number when number is >= int.MinValue and <= int.MaxValue: result = (int)number; return true;
+            case ulong number when number <= int.MaxValue: result = (int)number; return true;
+            default: result = 0; return false;
+        }
+    }
+
+    private static bool TryGetUInt16(object? value, out ushort result)
+    {
+        if (TryGetInt32(value, out int number) && number is > 0 and <= ushort.MaxValue)
+        {
+            result = (ushort)number;
+            return true;
+        }
+
+        result = 0;
+        return false;
+    }
+
+    private static bool TryGetStreamConnectionId(object? value, out string result)
+    {
+        switch (value)
+        {
+            case ulong number:
+                result = number.ToString(CultureInfo.InvariantCulture);
+                return true;
+            case long number:
+                result = unchecked((ulong)number).ToString(CultureInfo.InvariantCulture);
+                return true;
+            case uint number:
+                result = number.ToString(CultureInfo.InvariantCulture);
+                return true;
+            case int number:
+                result = unchecked((uint)number).ToString(CultureInfo.InvariantCulture);
+                return true;
+            default:
+                result = string.Empty;
+                return false;
         }
     }
 

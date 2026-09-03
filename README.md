@@ -12,7 +12,7 @@ The first test release is under active development. See [docs/TESTING.md](docs/T
 - Local network only; no cloud relay or account.
 - A connection PIN is required by default.
 - No recording, screenshots, analytics, or crash uploads.
-- Diagnostic export is explicit and redacts device identifiers and network addresses.
+- Diagnostic logging is off by default, stays local, and rotates after seven days. When enabled, logs may include the connecting device name and local-network address.
 
 ## Build
 
