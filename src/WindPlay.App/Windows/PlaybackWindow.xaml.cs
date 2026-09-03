@@ -54,8 +54,8 @@ public sealed partial class PlaybackWindow : Window
         if (settings.FullScreenOnConnect)
             SetFullScreen(true);
 
-        KeyboardAccelerators.Add(CreateAccelerator(Windows.System.VirtualKey.F11, ToggleFullScreen));
-        KeyboardAccelerators.Add(CreateAccelerator(Windows.System.VirtualKey.Escape, ExitFullScreen));
+        KeyboardAccelerators.Add(CreateAccelerator(global::Windows.System.VirtualKey.F11, ToggleFullScreen));
+        KeyboardAccelerators.Add(CreateAccelerator(global::Windows.System.VirtualKey.Escape, ExitFullScreen));
     }
 
     public void AttachVideo(MediaSource source)
@@ -92,7 +92,7 @@ public sealed partial class PlaybackWindow : Window
         AppWindow.Resize(new SizeInt32(windowWidth, windowHeight));
     }
 
-    private static KeyboardAccelerator CreateAccelerator(Windows.System.VirtualKey key, Action action)
+    private static KeyboardAccelerator CreateAccelerator(global::Windows.System.VirtualKey key, Action action)
     {
         KeyboardAccelerator accelerator = new() { Key = key };
         accelerator.Invoked += (_, args) =>
