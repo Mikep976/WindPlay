@@ -67,7 +67,7 @@ public sealed partial class ModifiedHttpConnection : IDisposable
 
     private async Task MessageLoopWorker(CancellationToken cancellationToken)
     {
-        _logger?.RunningMessageLoopWorker(_endPoint);
+        _logger?.RunningLegacyHttpMessageLoop(_endPoint);
         byte[] header = GC.AllocateUninitializedArray<byte>(MaximumHeaderBytes);
         int length = 0;
 
@@ -99,7 +99,7 @@ public sealed partial class ModifiedHttpConnection : IDisposable
         }
         finally
         {
-            _logger?.EndMessageLoopWorker(_endPoint);
+            _logger?.EndLegacyHttpMessageLoop(_endPoint);
         }
     }
 
@@ -135,10 +135,10 @@ internal static partial class ModifiedHttpConnectionLoggers
     public static partial void ConnectionIdle(this ILogger logger, EndPoint? endPoint);
 
     [LoggerMessage(LogLevel.Information, "Running legacy AirPlay HTTP probe handler for client [{endPoint}]")]
-    public static partial void RunningMessageLoopWorker(this ILogger logger, EndPoint? endPoint);
+    public static partial void RunningLegacyHttpMessageLoop(this ILogger logger, EndPoint? endPoint);
 
     [LoggerMessage(LogLevel.Information, "Closed legacy AirPlay HTTP probe handler for client [{endPoint}]")]
-    public static partial void EndMessageLoopWorker(this ILogger logger, EndPoint? endPoint);
+    public static partial void EndLegacyHttpMessageLoop(this ILogger logger, EndPoint? endPoint);
 
     [LoggerMessage(LogLevel.Warning, "Legacy AirPlay HTTP probe handler failed for client [{endPoint}]")]
     public static partial void ConnectionFailed(this ILogger logger, EndPoint? endPoint, Exception exception);
