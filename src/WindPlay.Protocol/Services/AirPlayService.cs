@@ -44,7 +44,7 @@ public class AirPlayService(
                 continue;
             }
 
-            var connection = new ModifiedHttpConnection(client, options, loggerFactory);
+            var connection = new ModifiedHttpConnection(client, loggerFactory);
             connection.ConnectionClosed += (_, _) =>
             {
                 _httpConnections.TryRemove(remoteEndPoint, out ModifiedHttpConnection? removed);

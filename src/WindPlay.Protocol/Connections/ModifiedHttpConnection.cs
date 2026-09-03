@@ -1,146 +1,145 @@
-﻿using AirPlay.Core2.Extensions;
-using AirPlay.Core2.Models.Configs;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 
 namespace AirPlay.Core2.Connections;
 
-public partial class ModifiedHttpConnection : IDisposable
+/// <summary>
+/// Safely terminates legacy AirPlay HTTP probes. Mirroring and audio use the paired
+/// RAOP/RTSP service; legacy media-control routes are not implemented in this build.
+/// </summary>
+public sealed partial class ModifiedHttpConnection : IDisposable
 {
-    private readonly ILoggerFactory? _loggerFactory;
-    private readonly ILogger<ModifiedHttpConnection>? _logger;
-    private readonly AirPlayConfig _airPlayConfig;
+    internal const int MaximumHeaderBytes = 32 * 1024;
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
 
+    private readonly ILogger<ModifiedHttpConnection>? _logger;
     private readonly TcpClient _client;
     private readonly IPEndPoint _endPoint;
 
-    public ModifiedHttpConnection(TcpClient client, IOptions<AirPlayConfig> options, ILoggerFactory? loggerFactory = null)
+    public ModifiedHttpConnection(TcpClient client, ILoggerFactory? loggerFactory = null)
     {
+        ArgumentNullException.ThrowIfNull(client);
         _client = client;
+        _client.NoDelay = true;
         _endPoint = client.Client.RemoteEndPoint as IPEndPoint
-            ?? throw new ArgumentException("TcpClient must be connected to a remote endpoint");
-
-        _airPlayConfig = options.Value;
-
-        _loggerFactory = loggerFactory;
+            ?? throw new ArgumentException("TcpClient must be connected to a remote endpoint", nameof(client));
         _logger = loggerFactory?.CreateLogger<ModifiedHttpConnection>();
-
-        //_ed25519 = (Ed25519.Create("ed25519-sha512") as Ed25519)!;
-        //_ed25519.FromSeed([.. Enumerable.Range(0, 32).Select(r => (byte)r)]);
-
-        //_publicKey = _ed25519.GetPublicKey();
-        //_privateKey = _ed25519.GetPrivateKey();
     }
 
     public event EventHandler? ConnectionClosed;
 
     public void BeginMessageLoopWorker(CancellationToken cancellationToken)
     {
-        Task.Run(async () => await MessageLoopWorker(cancellationToken), cancellationToken).ContinueWith(t =>
+        _ = Task.Run(async () =>
         {
-            ConnectionClosed?.Invoke(this, EventArgs.Empty);
-        }, cancellationToken);
+            try
+            {
+                await MessageLoopWorker(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Normal receiver shutdown.
+            }
+            catch (IOException)
+            {
+                // The probing client closed the connection.
+            }
+            catch (SocketException)
+            {
+                // The probing client reset the connection.
+            }
+            catch (ObjectDisposedException)
+            {
+                // Service shutdown disposes active clients.
+            }
+            catch (Exception exception)
+            {
+                _logger?.ConnectionFailed(_endPoint, exception);
+            }
+            finally
+            {
+                ConnectionClosed?.Invoke(this, EventArgs.Empty);
+            }
+        }, CancellationToken.None);
     }
 
     private async Task MessageLoopWorker(CancellationToken cancellationToken)
     {
         _logger?.RunningMessageLoopWorker(_endPoint);
-        ConnectionClosed += (_, _) => _logger?.EndMessageLoopWorker(_endPoint);
+        byte[] header = GC.AllocateUninitializedArray<byte>(MaximumHeaderBytes);
+        int length = 0;
 
-        DateTime? lastRequestTime = null;
-
-        using var memoryOwner = MemoryPool<byte>.Shared.Rent(1024);
-        using var networkStream = _client.GetStream();
-
-        if (!_client.Connected) throw new InvalidOperationException("TcpClient is not connected");
-        if (!networkStream.CanRead) throw new InvalidOperationException("Can't read the NetworkStream");
-
-        while (_client.Connected)
-        {
-            long readTotleBytesLength = 0;
-            string rawHexData = string.Empty;
-
-            while (networkStream.DataAvailable)
-            {
-                try
-                {
-                    Memory<byte> buffer = memoryOwner.Memory;
-                    int readCount = await networkStream.ReadAsync(buffer, cancellationToken);
-
-                    readTotleBytesLength += readCount;
-                    rawHexData += string.Join(string.Empty, buffer[..readCount].ToArray().Select(b => b.ToString("X2")));
-
-                    // Wait for other possible data
-                    await Task.Delay(10, cancellationToken);
-                }
-                catch (IOException) { }
-            }
-
-            if (string.IsNullOrEmpty(rawHexData))
-            {
-                // Same as AirTunes
-                if (lastRequestTime != null && DateTime.Now.Subtract(lastRequestTime.Value).TotalSeconds > 10)
-                {
-                    _logger?.ConnectionIdle(_endPoint);
-                    break;
-                }
-
-                await Task.Delay(10, cancellationToken);
-                continue;
-            }
-
-            foreach (var requestMessage in HttpRequestMessage.ParseRequestsFromHex(rawHexData))
-                await HandleRequestMessageAsync(requestMessage, cancellationToken)
-                    .ContinueWith(async t => await HandleResponseMessageAsync(requestMessage, t.Result, networkStream, cancellationToken), TaskContinuationOptions.OnlyOnRanToCompletion);
-
-            //if (_disconnectRequested) await _client.Client.DisconnectAsync(false, cancellationToken);
-        }
-    }
-
-    private async Task<HttpResponseMessage> HandleRequestMessageAsync(HttpRequestMessage requestMessage, CancellationToken cancellationToken)
-    {
-        var responseMessage = new HttpResponseMessage();
-
-        _logger?.HttpRequestMessageReceived(_endPoint, requestMessage.Method, requestMessage.RequestUri);
-
-        return responseMessage;
-    }
-
-    private async Task HandleResponseMessageAsync(HttpRequestMessage requestMessage, HttpResponseMessage responseMessage, NetworkStream networkStream, CancellationToken cancellationToken)
-    {
-        byte[] bodyBuffer = await responseMessage.Content.ReadAsByteArrayAsync(cancellationToken);
-        //responseMessage.Headers["Content-Length"] = [bodyBuffer.Length.ToString()];
+        using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        requestTimeout.CancelAfter(RequestTimeout);
+        await using NetworkStream stream = _client.GetStream();
 
         try
         {
-            await networkStream.WriteAsync(bodyBuffer, cancellationToken);
-            await networkStream.FlushAsync(cancellationToken);
+            while (length < header.Length)
+            {
+                int read = await stream.ReadAsync(header.AsMemory(length), requestTimeout.Token).ConfigureAwait(false);
+                if (read == 0)
+                    return;
+
+                length += read;
+                if (FindHeaderTerminator(header.AsSpan(0, length)) >= 0)
+                {
+                    await WriteResponseAsync(stream, "404 Not Found", cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+            }
+
+            await WriteResponseAsync(stream, "431 Request Header Fields Too Large", cancellationToken).ConfigureAwait(false);
         }
-        catch (IOException)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger?.SendResponseMessageError(_endPoint, requestMessage.Method, requestMessage.RequestUri);
+            _logger?.ConnectionIdle(_endPoint);
         }
         finally
         {
-            requestMessage.Dispose();
-            responseMessage.Dispose();
+            _logger?.EndMessageLoopWorker(_endPoint);
         }
     }
 
-    public void Dispose() => _client?.Dispose();
+    internal static int FindHeaderTerminator(ReadOnlySpan<byte> data)
+    {
+        for (int index = 0; index <= data.Length - 4; index++)
+        {
+            if (data[index] == (byte)'\r' && data[index + 1] == (byte)'\n' &&
+                data[index + 2] == (byte)'\r' && data[index + 3] == (byte)'\n')
+                return index;
+        }
+
+        return -1;
+    }
+
+    private static async Task WriteResponseAsync(
+        NetworkStream stream,
+        string status,
+        CancellationToken cancellationToken)
+    {
+        byte[] response = Encoding.ASCII.GetBytes(
+            $"HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\nServer: {Constants.AIRTUNES_SERVER_VERSION}\r\n\r\n");
+        await stream.WriteAsync(response, cancellationToken).ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public void Dispose() => _client.Dispose();
 }
 
 internal static partial class ModifiedHttpConnectionLoggers
 {
-    [LoggerMessage(LogLevel.Warning, "The connection [{endPoint}] is idle")]
+    [LoggerMessage(LogLevel.Warning, "The legacy AirPlay HTTP connection [{endPoint}] timed out")]
     public static partial void ConnectionIdle(this ILogger logger, EndPoint? endPoint);
 
-    [LoggerMessage(LogLevel.Information, "HttpRequestMessage from [{iPEndPoint}] Received: [{method}] \"{requestPath}\"")]
-    public static partial void HttpRequestMessageReceived(this ILogger logger, IPEndPoint iPEndPoint, HttpMethod method, Uri? requestPath);
+    [LoggerMessage(LogLevel.Information, "Running legacy AirPlay HTTP probe handler for client [{endPoint}]")]
+    public static partial void RunningMessageLoopWorker(this ILogger logger, EndPoint? endPoint);
 
-    [LoggerMessage(LogLevel.Warning, "Failed to send responseMessage to HttpRequestMessage from [{iPEndPoint}] Received: [{requestType}] \"{requestPath}\"")]
-    public static partial void SendResponseMessageError(this ILogger logger, IPEndPoint iPEndPoint, HttpMethod requestType, Uri? requestPath);
+    [LoggerMessage(LogLevel.Information, "Closed legacy AirPlay HTTP probe handler for client [{endPoint}]")]
+    public static partial void EndMessageLoopWorker(this ILogger logger, EndPoint? endPoint);
+
+    [LoggerMessage(LogLevel.Warning, "Legacy AirPlay HTTP probe handler failed for client [{endPoint}]")]
+    public static partial void ConnectionFailed(this ILogger logger, EndPoint? endPoint, Exception exception);
 }
