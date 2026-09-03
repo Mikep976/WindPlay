@@ -1,0 +1,37 @@
+WINDPLAY — WINDOWS ARM64 QUICK START
+====================================
+
+1. Extract the entire WindPlay-win-arm64.zip file to a local folder.
+   Do not run WindPlay.exe from inside the ZIP.
+
+2. Open WindPlay.exe. This private test build is unsigned, so Windows SmartScreen
+   may show a warning. Choose More info > Run anyway only if you downloaded the
+   artifact from Mikep976/WindPlay.
+
+3. When Windows Firewall asks, allow WindPlay on Private networks only. Leave
+   Public networks unchecked.
+
+4. Leave “Accept AirPlay connections” on. WindPlay shows the receiver name and
+   four-digit passcode to use on your Apple device.
+
+5. On the Mac, open Control Center > Screen Mirroring and choose WindPlay. Enter
+   the passcode if requested. Then open System Settings > Displays, select the
+   WindPlay display, and choose “Use as Separate Display.”
+
+6. On iPhone or iPad, open Control Center > Screen Mirroring and choose WindPlay.
+
+PRIVACY
+-------
+WindPlay uses the local network directly. It has no account, cloud relay,
+telemetry, recording, or crash uploader. Diagnostic logs are off by default.
+
+TROUBLESHOOTING
+---------------
+- Both devices must be on the same trusted LAN. Guest Wi-Fi/client isolation can
+  block discovery.
+- Temporarily disconnect VPNs that take over multicast routing.
+- In Windows Settings, confirm the current Wi-Fi network profile is Private.
+- Keep the WindPlay folder intact; this is a self-contained build.
+- DRM-protected video is intentionally unsupported.
+
+Please use docs/TESTING.md in the repository when reporting a test result.

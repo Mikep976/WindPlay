@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="WindPlay.App.Windows.PlaybackWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop Kind="BaseAlt" />
+    </Window.SystemBackdrop>
+
+    <Grid
+        x:Name="Root"
+        Background="#FF050608"
+        DoubleTapped="Root_DoubleTapped"
+        PointerMoved="Root_PointerMoved">
+        <MediaPlayerElement
+            x:Name="PlayerElement"
+            AreTransportControlsEnabled="False"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch"
+            Stretch="Uniform" />
+
+        <Border
+            x:Name="TopBar"
+            Height="56"
+            Margin="12"
+            Padding="14,8"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Top"
+            Background="#C9202227"
+            BorderBrush="#35FFFFFF"
+            BorderThickness="1"
+            CornerRadius="14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Border
+                    Width="36"
+                    Height="36"
+                    Background="{ThemeResource AccentFillColorDefaultBrush}"
+                    CornerRadius="9">
+                    <FontIcon
+                        FontSize="18"
+                        Foreground="White"
+                        Glyph="&#xE714;" />
+                </Border>
+
+                <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                    <TextBlock
+                        x:Name="DeviceNameText"
+                        Foreground="White"
+                        Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                    <TextBlock
+                        x:Name="StreamDetailsText"
+                        Foreground="#BFFFFFFF"
+                        Style="{ThemeResource CaptionTextBlockStyle}" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
+                    <Button
+                        x:Name="FullScreenButton"
+                        Width="40"
+                        Height="40"
+                        Padding="0"
+                        Background="Transparent"
+                        Click="FullScreenButton_Click"
+                        ToolTipService.ToolTip="Full screen (F11)">
+                        <FontIcon Foreground="White" Glyph="&#xE740;" />
+                    </Button>
+                    <Button
+                        Width="40"
+                        Height="40"
+                        Padding="0"
+                        Background="Transparent"
+                        Click="DisconnectButton_Click"
+                        ToolTipService.ToolTip="Disconnect">
+                        <FontIcon Foreground="White" Glyph="&#xE8BB;" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border
+            x:Name="PerformancePill"
+            Margin="18"
+            Padding="10,6"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Bottom"
+            Background="#B31A1C20"
+            CornerRadius="8"
+            Visibility="Collapsed">
+            <TextBlock
+                x:Name="PerformanceText"
+                Foreground="#D9FFFFFF"
+                Style="{ThemeResource CaptionTextBlockStyle}" />
+        </Border>
+    </Grid>
+</Window>

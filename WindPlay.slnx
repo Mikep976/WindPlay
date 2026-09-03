@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WindPlay.Protocol/WindPlay.Protocol.csproj" />
+    <Project Path="src/WindPlay.App/WindPlay.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WindPlay.Protocol.Tests/WindPlay.Protocol.Tests.csproj" />
+  </Folder>
+</Solution>
+

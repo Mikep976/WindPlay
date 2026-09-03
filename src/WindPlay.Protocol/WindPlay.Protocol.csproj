@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>WindPlay.Protocol</AssemblyName>
+    <RootNamespace>AirPlay.Core2</RootNamespace>
+    <Description>WindPlay's local AirPlay protocol and transport implementation.</Description>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <!-- This fork retains protocol names and binary-layout structs from its upstream
+         implementation. App and test projects keep the full analyzer ruleset. -->
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <NoWarn>$(NoWarn);CS0675</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The upstream AAC decoder loads an x64-only FDK binary. WindPlay advertises
+         managed ALAC/PCM only so the entire receive path remains native on Arm64. -->
+    <Compile Remove="Decoders\AACDecoder.cs" />
+    <Compile Remove="Utils\LibraryLoader.cs" />
+    <None Remove="Resources\table_s1.bin" />
+    <None Remove="Resources\table_s10.bin" />
+    <None Remove="Resources\table_s2.bin" />
+    <None Remove="Resources\table_s3.bin" />
+    <None Remove="Resources\table_s4.bin" />
+    <None Remove="Resources\table_s5.bin" />
+    <None Remove="Resources\table_s6.bin" />
+    <None Remove="Resources\table_s7.bin" />
+    <None Remove="Resources\table_s8.bin" />
+    <None Remove="Resources\table_s9.bin" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\table_s1.bin" />
+    <EmbeddedResource Include="Resources\table_s10.bin" />
+    <EmbeddedResource Include="Resources\table_s2.bin" />
+    <EmbeddedResource Include="Resources\table_s3.bin" />
+    <EmbeddedResource Include="Resources\table_s4.bin" />
+    <EmbeddedResource Include="Resources\table_s5.bin" />
+    <EmbeddedResource Include="Resources\table_s6.bin" />
+    <EmbeddedResource Include="Resources\table_s7.bin" />
+    <EmbeddedResource Include="Resources\table_s8.bin" />
+    <EmbeddedResource Include="Resources\table_s9.bin" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" />
+    <PackageReference Include="LibALAC" />
+    <PackageReference Include="Makaretu.Dns.Multicast.New" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="plist-cil" />
+    <PackageReference Include="Rebex.Elliptic.Curve25519" />
+    <PackageReference Include="Rebex.Elliptic.Ed25519" />
+  </ItemGroup>
+
+</Project>
