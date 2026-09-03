@@ -14,9 +14,14 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-## Apple Lossless Audio Codec
+## FFmpeg
 
-Decoded through the `LibALAC` NuGet package. See the package distribution for its license and notices.
+WindPlay dynamically links the ARM64 builds of `avcodec`, `avutil`, and `swresample` from FFmpegInteropX.Desktop.FFmpeg 8.1.2. FFmpeg is used only for bounded in-memory decoding of AirPlay ALAC and AAC access units; its demuxers, network protocols, encoders, and command-line tools are not shipped or invoked.
+
+- Project: <https://ffmpeg.org/>
+- Package: <https://www.nuget.org/packages/FFmpegInteropX.Desktop.FFmpeg/8.1.2>
+- Package source commit: `38b88335f99e76ed89ff3c93f877fdefce736c13`
+- License: LGPL-2.1-or-later and applicable component licenses. Complete license texts are distributed in `ThirdPartyLicenses` beside WindPlay.
 
 ## Bouncy Castle
 
@@ -25,4 +30,3 @@ Cryptographic primitives are provided by Bouncy Castle for C# under the MIT lice
 ## Makaretu DNS
 
 Multicast DNS and DNS-SD support is provided by Makaretu DNS packages under the MIT license.
-

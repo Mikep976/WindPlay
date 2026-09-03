@@ -24,8 +24,8 @@ public partial class AirPlayPublisher(MulticastService multicastService, ILogger
             airTunesConfig.Value.Port
         );
 
-        // Keep negotiation honest and architecture-neutral: 0=PCM, 1=ALAC.
-        airTunesProfile.AddProperty("cn", "0,1");
+        // PCM, ALAC, AAC-LC, and AAC-ELD. Compressed formats use native Arm64 FFmpeg.
+        airTunesProfile.AddProperty("cn", "0,1,2,3");
         airTunesProfile.AddProperty("da", "true"); // rfc2617DigestAuthKey
         airTunesProfile.AddProperty("et", "0,3,5"); // encryptionTypes: 0=none, 1=rsa (airport express), 3=fairplay, 4=MFiSAP, 5=fairplay SAPv2.5
         airTunesProfile.AddProperty("ft", Constants.FEATURES); // originally "0x5A7FFFF7,0x1E" https://openairplay.github.io/airplay-spec/features.html

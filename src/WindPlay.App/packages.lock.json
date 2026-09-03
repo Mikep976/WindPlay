@@ -8,6 +8,12 @@
         "resolved": "8.4.0",
         "contentHash": "tqVU8yc/ADO9oiTRyTnwhFN68hCwvkliMierptWOudIAvWY1mWCh5VFh+guwHJmpMwfg0J0rY+yyd5Oy7ty9Uw=="
       },
+      "FFmpegInteropX.Desktop.FFmpeg": {
+        "type": "Direct",
+        "requested": "[8.1.2, )",
+        "resolved": "8.1.2",
+        "contentHash": "NZ3oT7/9SKkoHB7AfgprBTA22GlidyNj9Vz21+MF25QAUkDq65YUQYUzC3ZPHL51DwsS+Fmf8nQhN2aOKSwqAg=="
+      },
       "Microsoft.Extensions.Hosting": {
         "type": "Direct",
         "requested": "[10.0.11, )",
@@ -487,7 +493,6 @@
         "type": "Project",
         "dependencies": {
           "BouncyCastle.Cryptography": "[2.7.0, )",
-          "LibALAC": "[1.0.7, )",
           "Makaretu.Dns.Multicast.New": "[0.38.0, )",
           "Microsoft.Extensions.Hosting": "[10.0.11, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.11, )",
@@ -501,12 +506,6 @@
         "requested": "[2.7.0, )",
         "resolved": "2.7.0",
         "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
-      },
-      "LibALAC": {
-        "type": "CentralTransitive",
-        "requested": "[1.0.7, )",
-        "resolved": "1.0.7",
-        "contentHash": "bBCxB3odC2O4tAI1WnE5+2OD4sw3/s9nFO9JOYzuSQShXVAqaA6ZhbdjuV2hTWmMqoi61H8KtnCZb4IBAQWs1A=="
       },
       "Makaretu.Dns.Multicast.New": {
         "type": "CentralTransitive",
@@ -547,6 +546,12 @@
       }
     },
     "net10.0-windows10.0.26100/win-arm64": {
+      "FFmpegInteropX.Desktop.FFmpeg": {
+        "type": "Direct",
+        "requested": "[8.1.2, )",
+        "resolved": "8.1.2",
+        "contentHash": "NZ3oT7/9SKkoHB7AfgprBTA22GlidyNj9Vz21+MF25QAUkDq65YUQYUzC3ZPHL51DwsS+Fmf8nQhN2aOKSwqAg=="
+      },
       "Microsoft.Web.WebView2": {
         "type": "Transitive",
         "resolved": "1.0.3719.77",

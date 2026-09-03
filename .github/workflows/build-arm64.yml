@@ -35,11 +35,19 @@ jobs:
       - name: Test protocol and security boundaries
         run: dotnet test tests/WindPlay.Protocol.Tests/WindPlay.Protocol.Tests.csproj -c Release --no-restore --logger "trx;LogFileName=protocol-tests.trx"
 
+      - name: Build bounded native audio codecs
+        shell: pwsh
+        run: ./eng/build-native-codecs.ps1
+
       - name: Build native ARM64 app
         run: dotnet build src/WindPlay.App/WindPlay.App.csproj -c Release -p:Platform=ARM64 --no-restore
 
       - name: Publish self-contained app
         run: dotnet publish src/WindPlay.App/WindPlay.App.csproj -c Release -p:Platform=ARM64 -r win-arm64 --self-contained true --no-restore -o artifacts/WindPlay
+
+      - name: Verify ARM64 codecs and native initialization
+        shell: pwsh
+        run: ./eng/test-published-codecs.ps1 -PublishDirectory artifacts/WindPlay
 
       - name: Add quick-start note
         shell: pwsh

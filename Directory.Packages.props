@@ -7,7 +7,7 @@
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageVersion Include="H.NotifyIcon.WinUI" Version="2.3.0" />
-    <PackageVersion Include="LibALAC" Version="1.0.7" />
+    <PackageVersion Include="FFmpegInteropX.Desktop.FFmpeg" Version="8.1.2" />
     <PackageVersion Include="Makaretu.Dns.Multicast.New" Version="0.38.0" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />

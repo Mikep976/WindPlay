@@ -20,6 +20,7 @@ Prerequisites: .NET 10 SDK, Visual Studio 2026 with the Windows application deve
 
 ```powershell
 dotnet restore WindPlay.slnx
+./eng/build-native-codecs.ps1
 dotnet build WindPlay.slnx -c Release -p:Platform=ARM64
 ```
 
@@ -28,4 +29,3 @@ CI creates an unpackaged, self-contained `win-arm64` ZIP for private testing.
 ## Acknowledgements
 
 The protocol layer began as a security- and performance-focused fork of natsurainko's MIT-licensed [AirPlay.Core2](https://github.com/natsurainko/AirPlay.Core2). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-

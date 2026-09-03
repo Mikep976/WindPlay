@@ -16,6 +16,7 @@
     <!-- The upstream AAC decoder loads an x64-only FDK binary. WindPlay advertises
          managed ALAC/PCM only so the entire receive path remains native on Arm64. -->
     <Compile Remove="Decoders\AACDecoder.cs" />
+    <Compile Remove="Decoders\ALACDecoder.cs" />
     <Compile Remove="Utils\LibraryLoader.cs" />
     <None Remove="Resources\table_s1.bin" />
     <None Remove="Resources\table_s10.bin" />
@@ -44,7 +45,6 @@
 
   <ItemGroup>
     <PackageReference Include="BouncyCastle.Cryptography" />
-    <PackageReference Include="LibALAC" />
     <PackageReference Include="Makaretu.Dns.Multicast.New" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />

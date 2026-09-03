@@ -409,7 +409,6 @@
         "type": "Project",
         "dependencies": {
           "BouncyCastle.Cryptography": "[2.7.0, )",
-          "LibALAC": "[1.0.7, )",
           "Makaretu.Dns.Multicast.New": "[0.38.0, )",
           "Microsoft.Extensions.Hosting": "[10.0.11, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.11, )",
@@ -423,12 +422,6 @@
         "requested": "[2.7.0, )",
         "resolved": "2.7.0",
         "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
-      },
-      "LibALAC": {
-        "type": "CentralTransitive",
-        "requested": "[1.0.7, )",
-        "resolved": "1.0.7",
-        "contentHash": "bBCxB3odC2O4tAI1WnE5+2OD4sw3/s9nFO9JOYzuSQShXVAqaA6ZhbdjuV2hTWmMqoi61H8KtnCZb4IBAQWs1A=="
       },
       "Makaretu.Dns.Multicast.New": {
         "type": "CentralTransitive",

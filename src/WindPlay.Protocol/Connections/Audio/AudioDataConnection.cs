@@ -56,8 +56,21 @@ public class AudioDataConnection : IDisposable
             // RTP info: 96 AppleLossless, 96 352 0 16 40 10 14 2 255 0 0 44100
             // (ALAC -> PCM)
 
-            _decoder = new ALACDecoder();
-            _decoder.Config(sampleRate: 44100, channels: 2, bitDepth: 16, frameLength: 352);
+            _decoder = new NativeAudioDecoder(audioFormat);
+            if (_decoder.Config(sampleRate: 44100, channels: 2, bitDepth: 16, frameLength: 352) != 0)
+                throw new NotSupportedException("The native ALAC decoder could not be initialized.");
+        }
+        else if (audioFormat == AudioFormat.AAC_ELD)
+        {
+            _decoder = new NativeAudioDecoder(audioFormat);
+            if (_decoder.Config(sampleRate: 44100, channels: 2, bitDepth: 16, frameLength: 480) != 0)
+                throw new NotSupportedException("The native AAC-ELD decoder could not be initialized.");
+        }
+        else if (audioFormat == AudioFormat.AAC)
+        {
+            _decoder = new NativeAudioDecoder(audioFormat);
+            if (_decoder.Config(sampleRate: 44100, channels: 2, bitDepth: 16, frameLength: 1024) != 0)
+                throw new NotSupportedException("The native AAC decoder could not be initialized.");
         }
         else if (audioFormat == AudioFormat.PCM)
         {
@@ -66,7 +79,7 @@ public class AudioDataConnection : IDisposable
         }
         else
         {
-            throw new NotSupportedException($"The sender selected unsupported audio format {audioFormat}. WindPlay advertises ALAC and PCM only.");
+            throw new NotSupportedException($"The sender selected unsupported audio format {audioFormat}.");
         }
     }
 
@@ -167,6 +180,8 @@ public class AudioDataConnection : IDisposable
 
     public void Dispose()
     {
+        if (_decoder is IDisposable disposableDecoder)
+            disposableDecoder.Dispose();
         CryptographicOperations.ZeroMemory(_aesKey);
         _tokenSource.Dispose();
         _udpListener.Dispose();
