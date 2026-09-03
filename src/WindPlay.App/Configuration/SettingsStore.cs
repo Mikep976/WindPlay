@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace WindPlay.App.Configuration;
 
-public sealed class SettingsStore
+public static class SettingsStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -10,7 +10,7 @@ public sealed class SettingsStore
         WriteIndented = true,
     };
 
-    public ReceiverSettings Load()
+    public static ReceiverSettings Load()
     {
         AppPaths.EnsureDataDirectory();
         try
@@ -30,7 +30,7 @@ public sealed class SettingsStore
         }
     }
 
-    public ReceiverSettings Save(ReceiverSettings settings)
+    public static ReceiverSettings Save(ReceiverSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
         AppPaths.EnsureDataDirectory();

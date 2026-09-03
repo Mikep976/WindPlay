@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using WindPlay.App.Configuration;
@@ -8,6 +9,7 @@ using WindPlay.App.Windows;
 
 namespace WindPlay.App;
 
+[SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "WinUI owns the Application lifetime; BeginShutdown deterministically disposes the receiver and playback coordinator.")]
 public partial class App : Application
 {
     private MainWindow? _mainWindow;
@@ -17,10 +19,9 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
-        SettingsStore settingsStore = new();
-        ReceiverSettings settings = settingsStore.Load();
-        ReceiverSecrets secrets = new IdentityStore().LoadOrCreate();
-        Receiver = new ReceiverHostManager(settingsStore, settings, secrets);
+        ReceiverSettings settings = SettingsStore.Load();
+        ReceiverSecrets secrets = IdentityStore.LoadOrCreate();
+        Receiver = new ReceiverHostManager(settings, secrets);
     }
 
     public ReceiverHostManager Receiver { get; }

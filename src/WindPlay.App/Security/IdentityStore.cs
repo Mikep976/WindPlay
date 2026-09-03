@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Globalization;
 using AirPlay.Core2.Security;
 using WindPlay.App.Configuration;
 
@@ -8,7 +9,7 @@ namespace WindPlay.App.Security;
 
 public sealed record ReceiverSecrets(ReceiverIdentity Identity, string Passcode);
 
-public sealed class IdentityStore
+public static class IdentityStore
 {
     private static readonly byte[] AdditionalEntropy = SHA256.HashData(
         Encoding.UTF8.GetBytes("WindPlay.receiver-identity.v1"));
@@ -18,7 +19,7 @@ public sealed class IdentityStore
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    public ReceiverSecrets LoadOrCreate()
+    public static ReceiverSecrets LoadOrCreate()
     {
         AppPaths.EnsureDataDirectory();
         if (File.Exists(AppPaths.IdentityFile))
@@ -88,7 +89,7 @@ public sealed class IdentityStore
     {
         byte[] seed = RandomNumberGenerator.GetBytes(ReceiverIdentity.SigningSeedLength);
         byte[] deviceIdentifier = RandomNumberGenerator.GetBytes(ReceiverIdentity.DeviceIdentifierLength);
-        string passcode = RandomNumberGenerator.GetInt32(10_000).ToString("D4");
+        string passcode = RandomNumberGenerator.GetInt32(10_000).ToString("D4", CultureInfo.InvariantCulture);
         byte[] passcodeBytes = Encoding.UTF8.GetBytes(passcode);
         Guid pairingIdentifier = Guid.NewGuid();
         Guid groupIdentifier = Guid.NewGuid();

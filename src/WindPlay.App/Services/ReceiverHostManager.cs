@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog;
+using System.Globalization;
 using System.Net.Sockets;
 using WindPlay.App.Configuration;
 using WindPlay.App.Security;
@@ -31,17 +32,14 @@ public sealed class ReceiverStateChangedEventArgs(ReceiverState state, string? e
 
 public sealed class ReceiverHostManager : IAsyncDisposable
 {
-    private readonly SettingsStore _settingsStore;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private IHost? _host;
     private SessionManager? _sessionManager;
 
     public ReceiverHostManager(
-        SettingsStore settingsStore,
         ReceiverSettings settings,
         ReceiverSecrets secrets)
     {
-        _settingsStore = settingsStore;
         Settings = settings;
         Identity = secrets.Identity;
         Passcode = secrets.Passcode;
@@ -151,7 +149,7 @@ public sealed class ReceiverHostManager : IAsyncDisposable
         if (restart)
             await StopAsync(cancellationToken).ConfigureAwait(false);
 
-        Settings = _settingsStore.Save(settings);
+        Settings = SettingsStore.Save(settings);
 
         if (restart)
             await StartAsync(cancellationToken).ConfigureAwait(false);
@@ -185,7 +183,8 @@ public sealed class ReceiverHostManager : IAsyncDisposable
                     retainedFileCountLimit: 7,
                     fileSizeLimitBytes: 5 * 1024 * 1024,
                     rollOnFileSizeLimit: true,
-                    shared: false));
+                    shared: false,
+                    formatProvider: CultureInfo.InvariantCulture));
         }
 
         return builder.Build();
