@@ -15,12 +15,52 @@ namespace AirPlay.Core2.Connections;
 public partial class RtspConnection
 {
     private const int MaximumSetupBodyBytes = 256 * 1024;
+    private const int MaximumInfoBodyBytes = 64 * 1024;
     private const int MaximumTextParameterBytes = 4 * 1024;
     private const int MaximumMetadataBytes = 512 * 1024;
     private const string SupportedMethods = "SETUP, RECORD, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER";
 
-    private async Task OnGetInfoRequested(RtspResponseMessage responseMessage, CancellationToken cancellationToken)
+    private async Task OnGetInfoRequested(
+        RtspRequestMessage requestMessage,
+        RtspResponseMessage responseMessage,
+        CancellationToken cancellationToken)
     {
+        if (requestMessage.Headers.ContainsKey("Content-Type"))
+        {
+            string? mediaType = null;
+            if (requestMessage.Headers.TryGetSingleValue("Content-Type", out string? contentType))
+            {
+                int separator = contentType.IndexOf(';');
+                mediaType = (separator >= 0 ? contentType[..separator] : contentType).Trim();
+            }
+
+            if (!string.Equals(
+                    mediaType,
+                    "application/x-apple-binary-plist",
+                    StringComparison.OrdinalIgnoreCase) ||
+                requestMessage.Body.Length > MaximumInfoBodyBytes)
+                throw new InvalidDataException("The sender provided an invalid AirPlay info qualifier request.");
+
+            Dictionary<string, object> qualifiedInfo = [];
+            if (requestMessage.Body.Length > 0)
+            {
+                if (PropertyListParser.Parse(requestMessage.Body) is not NSDictionary qualifierDictionary ||
+                    !qualifierDictionary.ToDictionary().TryGetValue("qualifier", out NSObject? qualifierValue) ||
+                    qualifierValue.ToObject() is not object[] { Length: > 0 and <= 2 } qualifiers)
+                    throw new InvalidDataException("The AirPlay info qualifier list is invalid.");
+
+                foreach (object qualifier in qualifiers)
+                {
+                    if (qualifier is not string name)
+                        throw new InvalidDataException("An AirPlay info qualifier is invalid.");
+                    AddTxtRecord(qualifiedInfo, name);
+                }
+            }
+
+            await WritePlistResponseAsync(qualifiedInfo, responseMessage, cancellationToken);
+            return;
+        }
+
         Dictionary<string, object> infoDictionary = new()
         {
             { "features", Constants.FEATURES_VALUE },
@@ -106,9 +146,35 @@ public partial class RtspConnection
             { "pi", _identity.PairingIdentifier.ToString("D") }
         };
 
-        var binaryPlist = NSObject.Wrap(infoDictionary);
-        var plistBytes = BinaryPropertyListWriter.WriteToArray(binaryPlist);
+        if (requestMessage.Path.Contains("txtAirPlay", StringComparison.Ordinal))
+            AddTxtRecord(infoDictionary, "txtAirPlay");
+        if (requestMessage.Path.Contains("txtRAOP", StringComparison.Ordinal))
+            AddTxtRecord(infoDictionary, "txtRAOP");
 
+        await WritePlistResponseAsync(infoDictionary, responseMessage, cancellationToken);
+    }
+
+    private void AddTxtRecord(Dictionary<string, object> response, string qualifier)
+    {
+        if (qualifier.Equals("txtAirPlay", StringComparison.Ordinal) && !response.ContainsKey(qualifier))
+            response.Add(
+                qualifier,
+                AirPlayPublisher.PackTxtRecord(
+                    AirPlayPublisher.GetAirPlayTxtProperties(_airTunesConfig, _identity)));
+        else if (qualifier.Equals("txtRAOP", StringComparison.Ordinal) && !response.ContainsKey(qualifier))
+            response.Add(
+                qualifier,
+                AirPlayPublisher.PackTxtRecord(
+                    AirPlayPublisher.GetAirTunesTxtProperties(_airTunesConfig, _identity)));
+    }
+
+    private static async Task WritePlistResponseAsync(
+        Dictionary<string, object> value,
+        RtspResponseMessage responseMessage,
+        CancellationToken cancellationToken)
+    {
+        NSObject binaryPlist = NSObject.Wrap(value);
+        byte[] plistBytes = BinaryPropertyListWriter.WriteToArray(binaryPlist);
         responseMessage.Headers.Add("Content-Type", "application/x-apple-binary-plist");
         await responseMessage.WriteAsync(plistBytes, 0, plistBytes.Length, cancellationToken);
     }

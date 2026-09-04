@@ -4,6 +4,7 @@ using Makaretu.Dns;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Text;
 
 namespace AirPlay.Core2;
 
@@ -23,25 +24,8 @@ public partial class AirPlayPublisher(MulticastService multicastService, ILogger
             airTunesConfig.Value.Port
         );
 
-        // PCM, ALAC, AAC-LC, and AAC-ELD. Compressed formats use native Arm64 FFmpeg.
-        airTunesProfile.AddProperty("cn", "0,1,2,3");
-        airTunesProfile.AddProperty("da", "true"); // rfc2617DigestAuthKey
-        airTunesProfile.AddProperty("et", "0,3,5"); // encryptionTypes: 0=none, 1=rsa (airport express), 3=fairplay, 4=MFiSAP, 5=fairplay SAPv2.5
-        airTunesProfile.AddProperty("ft", Constants.FEATURES); // originally "0x5A7FFFF7,0x1E" https://openairplay.github.io/airplay-spec/features.html
-        airTunesProfile.AddProperty("sf", airTunesConfig.Value.RequirePassword ? "0x84" : "0x4"); // systemFlags
-        airTunesProfile.AddProperty("md", "0,1,2"); // metadataTypes 0=text, 1=artwork, 2=progress
-        airTunesProfile.AddProperty("am", Constants.DEVICE_MODEL); // deviceModel
-        airTunesProfile.AddProperty("pw", airTunesConfig.Value.RequirePassword ? "true" : "false");
-        airTunesProfile.AddProperty("pk", identity.PublicKeyHex); // publicKey
-        airTunesProfile.AddProperty("tp", "UDP"); // transportTypes
-        airTunesProfile.AddProperty("vn", "65537");
-        airTunesProfile.AddProperty("vs", Constants.AIPLAY_SERVICE_VERSION);
-        airTunesProfile.AddProperty("ov", "11"); // 	vodkaVersion
-        airTunesProfile.AddProperty("vv", "2"); // 	vodkaVersion
-
-        //airTunesProfile.AddProperty("sr", "44100"); // sample rate
-        //airTunesProfile.AddProperty("ss", "16"); // bitdepth
-        //airTunesProfile.AddProperty("sv", "false"); // unk
+        foreach ((string key, string value) in GetAirTunesTxtProperties(airTunesConfig.Value, identity))
+            airTunesProfile.AddProperty(key, value);
 
         _serviceDiscovery.Advertise(airTunesProfile);
         logger.AirTunesPublished(airTunesConfig.Value.Port);
@@ -57,20 +41,8 @@ public partial class AirPlayPublisher(MulticastService multicastService, ILogger
             airTunesConfig.Value.Port
         );
 
-        airPlayProfile.AddProperty("acl", "0"); // accessControlLevel
-        airPlayProfile.AddProperty("deviceid", identity.DeviceId);
-        airPlayProfile.AddProperty("features", Constants.FEATURES); // originally "0x5A7FFFF7,0x1E" https://openairplay.github.io/airplay-spec/features.html
-        airPlayProfile.AddProperty("rsf", "0x0"); // requiredSenderFeatures
-        airPlayProfile.AddProperty("flags", "0x4");
-        airPlayProfile.AddProperty("pw", airTunesConfig.Value.RequirePassword ? "true" : "false");
-        airPlayProfile.AddProperty("model", Constants.DEVICE_MODEL);
-        airPlayProfile.AddProperty("protovers", "1.1");
-        airPlayProfile.AddProperty("srcvers", Constants.AIPLAY_SERVICE_VERSION);
-        airPlayProfile.AddProperty("pi", identity.PairingIdentifier.ToString("D"));
-        airPlayProfile.AddProperty("gid", identity.GroupIdentifier.ToString("D"));
-        airPlayProfile.AddProperty("gcgl", "0");
-        //airPlayProfile.AddProperty("vv", "2");
-        airPlayProfile.AddProperty("pk", identity.PublicKeyHex); // publicKey
+        foreach ((string key, string value) in GetAirPlayTxtProperties(airTunesConfig.Value, identity))
+            airPlayProfile.AddProperty(key, value);
 
         _serviceDiscovery.Advertise(airPlayProfile);
         logger.AirPlayPublished(airTunesConfig.Value.Port);
@@ -88,6 +60,68 @@ public partial class AirPlayPublisher(MulticastService multicastService, ILogger
         multicastService.Stop();
 
         return Task.CompletedTask;
+    }
+
+    internal static IReadOnlyList<KeyValuePair<string, string>> GetAirTunesTxtProperties(
+        AirTunesConfig config,
+        ReceiverIdentity identity)
+        =>
+        [
+            new("ch", "2"),
+            new("cn", "0,1,2,3"),
+            new("da", "true"),
+            new("et", "0,3,5"),
+            new("vv", "2"),
+            new("ft", Constants.FEATURES),
+            new("am", Constants.DEVICE_MODEL),
+            new("md", "0,1,2"),
+            new("rhd", "5.6.0.0"),
+            new("pw", config.RequirePassword ? "true" : "false"),
+            new("sr", "44100"),
+            new("ss", "16"),
+            new("sv", "false"),
+            new("tp", "UDP"),
+            new("txtvers", "1"),
+            new("sf", config.RequirePassword ? "0x84" : "0x4"),
+            new("vs", Constants.AIPLAY_SERVICE_VERSION),
+            new("vn", "65537"),
+            new("ov", "11"),
+            new("pk", identity.PublicKeyHex),
+        ];
+
+    internal static IReadOnlyList<KeyValuePair<string, string>> GetAirPlayTxtProperties(
+        AirTunesConfig config,
+        ReceiverIdentity identity)
+        =>
+        [
+            new("acl", "0"),
+            new("deviceid", identity.DeviceId),
+            new("features", Constants.FEATURES),
+            new("rsf", "0x0"),
+            new("flags", "0x4"),
+            new("pw", config.RequirePassword ? "true" : "false"),
+            new("model", Constants.DEVICE_MODEL),
+            new("protovers", "1.1"),
+            new("srcvers", Constants.AIPLAY_SERVICE_VERSION),
+            new("pi", identity.PairingIdentifier.ToString("D")),
+            new("gid", identity.GroupIdentifier.ToString("D")),
+            new("gcgl", "0"),
+            new("vv", "2"),
+            new("pk", identity.PublicKeyHex),
+        ];
+
+    internal static byte[] PackTxtRecord(IEnumerable<KeyValuePair<string, string>> properties)
+    {
+        using MemoryStream output = new();
+        foreach ((string key, string value) in properties)
+        {
+            byte[] item = Encoding.UTF8.GetBytes($"{key}={value}");
+            if (item.Length > byte.MaxValue)
+                throw new InvalidOperationException("An AirPlay TXT property exceeds the DNS-SD record limit.");
+            output.WriteByte((byte)item.Length);
+            output.Write(item);
+        }
+        return output.ToArray();
     }
 }
 

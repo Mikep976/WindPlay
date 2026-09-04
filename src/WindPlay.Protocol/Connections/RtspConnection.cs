@@ -236,7 +236,7 @@ public partial class RtspConnection : IDisposable
             else if (requestMessage.Type == RequestType.OPTIONS)
                 OnOptionsRequested(responseMessage);
             else if (IsInfoRequest(requestMessage))
-                await OnGetInfoRequested(responseMessage, cancellationToken);
+                await OnGetInfoRequested(requestMessage, responseMessage, cancellationToken);
             else if (requestMessage.Type == RequestType.POST && "/pair-setup".Equals(requestMessage.Path, StringComparison.OrdinalIgnoreCase))
                 await OnPostPairSetupRequested(responseMessage, cancellationToken);
             else if (requestMessage.Type == RequestType.POST && "/pair-verify".Equals(requestMessage.Path, StringComparison.OrdinalIgnoreCase))
