@@ -185,8 +185,9 @@ public partial class RtspConnection : IDisposable
 
         _logger?.RtspRequestMessageReceived(_ActiveRemote ?? "unknown", requestMessage.Type, requestMessage.Path);
 
-        if (_airTunesConfig.RequirePassword && !_authenticated &&
-            !IsInfoRequest(requestMessage))
+        // RAOP password authentication is negotiated on the initial SETUP. Apple's
+        // pair-setup, pair-verify, and FairPlay key exchange happen before that challenge.
+        if (_airTunesConfig.RequirePassword && !_authenticated && requestMessage.Type == RequestType.SETUP)
         {
             if (!_authenticationRateLimiter.CanAttempt(_endPoint.Address))
             {
@@ -230,7 +231,9 @@ public partial class RtspConnection : IDisposable
 
         try
         {
-            if (requestMessage.Type == RequestType.OPTIONS)
+            if (_deviceSession is null && RequiresDeviceSession(requestMessage))
+                responseMessage.Status = RtspResponseMessage.StatusCode.BADREQUEST;
+            else if (requestMessage.Type == RequestType.OPTIONS)
                 OnOptionsRequested(responseMessage);
             else if (IsInfoRequest(requestMessage))
                 await OnGetInfoRequested(responseMessage, cancellationToken);
@@ -272,6 +275,12 @@ public partial class RtspConnection : IDisposable
         => requestMessage.Type == RequestType.GET &&
             (requestMessage.Path.Equals("/info", StringComparison.OrdinalIgnoreCase) ||
              requestMessage.Path.StartsWith("/info?", StringComparison.OrdinalIgnoreCase));
+
+    private static bool RequiresDeviceSession(RtspRequestMessage requestMessage)
+        => requestMessage.Type is RequestType.GET_PARAMETER or RequestType.RECORD or
+            RequestType.FLUSH or RequestType.TEARDOWN or RequestType.SET_PARAMETER ||
+            (requestMessage.Type == RequestType.POST &&
+             requestMessage.Path.Equals("/feedback", StringComparison.OrdinalIgnoreCase));
 
     private static bool IsSafeSenderIdentifier(string value)
         => value.Length is > 0 and <= 64 && value.All(character => char.IsAsciiLetterOrDigit(character));

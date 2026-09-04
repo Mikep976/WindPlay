@@ -673,28 +673,28 @@ public partial class RtspConnection
                 ReadOnlySpan<char> value = line.AsSpan(separator + 1).Trim();
                 if (key.Equals("volume", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!TryParseVolume(value, out double volume))
+                    if (!TryParseVolume(value, out double parsedVolume))
                     {
                         responseMessage.Status = StatusCode.BADREQUEST;
                         return;
                     }
-                    requestedVolume = volume;
+                    requestedVolume = parsedVolume;
                 }
                 else if (key.Equals("progress", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!TryParseProgress(value, out MediaProgressInfo progress))
+                    if (!TryParseProgress(value, out MediaProgressInfo parsedProgress))
                     {
                         responseMessage.Status = StatusCode.BADREQUEST;
                         return;
                     }
-                    requestedProgress = progress;
+                    requestedProgress = parsedProgress;
                 }
             }
 
-            if (requestedVolume is double volume)
-                _deviceSession?.RemoteSetVolume(volume);
-            if (requestedProgress is MediaProgressInfo progress)
-                _deviceSession?.RemoteSetProgress(progress);
+            if (requestedVolume is double volumeToApply)
+                _deviceSession?.RemoteSetVolume(volumeToApply);
+            if (requestedProgress is MediaProgressInfo progressToApply)
+                _deviceSession?.RemoteSetProgress(progressToApply);
         }
         else if (contentType.Equals("application/x-dmap-tagged", StringComparison.OrdinalIgnoreCase))
         {

@@ -7,7 +7,7 @@ namespace AirPlay.Core2.Security;
 /// <summary>Validates the HTTP Digest variant used by password-protected RAOP receivers.</summary>
 public static class DigestAuthenticator
 {
-    public const string Realm = "WindPlay";
+    public const string Realm = "raop";
 
     public static string CreateNonce()
         => Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
@@ -15,7 +15,9 @@ public static class DigestAuthenticator
     public static string CreateChallenge(string nonce)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nonce);
-        return $"Digest realm=\"{Realm}\", nonce=\"{nonce}\", algorithm=MD5, qop=\"auth\"";
+        // Apple's RAOP clients use the original RFC 2617 challenge shape. Verification
+        // still accepts qop=auth when a sender elects to include it.
+        return $"Digest realm=\"{Realm}\", nonce=\"{nonce}\"";
     }
 
     public static bool Verify(
