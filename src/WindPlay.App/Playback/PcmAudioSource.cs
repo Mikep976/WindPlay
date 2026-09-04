@@ -9,8 +9,6 @@ public sealed class PcmAudioSource : IDisposable
 {
     private const int MaximumQueuedPackets = 32;
     private const int MaximumQueuedSampleFrames = 44_100 / 4;
-    private static readonly TimeSpan PacketDuration = TimeSpan.FromTicks(352L * TimeSpan.TicksPerSecond / 44_100L);
-
     private readonly object _gate = new();
     private readonly Queue<PcmAudioData> _packets = new();
     private readonly MediaStreamSource _streamSource;
@@ -117,9 +115,12 @@ public sealed class PcmAudioSource : IDisposable
                 return;
 
             var buffer = WindowsRuntimeBufferExtensions.AsBuffer(packet.Data, 0, packet.Length);
-            MediaStreamSample sample = MediaStreamSample.CreateFromBuffer(buffer, NormalizeTimestamp(packet.Pts));
-            sample.Duration = TimeSpan.FromTicks(
-                Math.Max(1, packet.Length / 4L) * TimeSpan.TicksPerSecond / 44_100L);
+            int sampleFrames = GetSampleFrames(packet);
+            TimeSpan duration = TimeSpan.FromTicks(sampleFrames * TimeSpan.TicksPerSecond / 44_100L);
+            MediaStreamSample sample = MediaStreamSample.CreateFromBuffer(
+                buffer,
+                NormalizeTimestamp(packet.Pts, duration));
+            sample.Duration = duration;
             request.Sample = sample;
             request.ReportSampleProgress(100);
         }
@@ -129,7 +130,7 @@ public sealed class PcmAudioSource : IDisposable
         }
     }
 
-    private TimeSpan NormalizeTimestamp(ulong ptsMicroseconds)
+    private TimeSpan NormalizeTimestamp(ulong ptsMicroseconds, TimeSpan packetDuration)
     {
         lock (_gate)
         {
@@ -137,7 +138,9 @@ public sealed class PcmAudioSource : IDisposable
             ulong relative = ptsMicroseconds >= _basePts.Value ? ptsMicroseconds - _basePts.Value : 0;
             long ticks = relative > (ulong)(long.MaxValue / 10) ? long.MaxValue : (long)relative * 10;
             if (ticks <= _lastTimestampTicks)
-                ticks = _lastTimestampTicks + PacketDuration.Ticks;
+                ticks = _lastTimestampTicks > long.MaxValue - packetDuration.Ticks
+                    ? long.MaxValue
+                    : _lastTimestampTicks + packetDuration.Ticks;
             _lastTimestampTicks = ticks;
             return TimeSpan.FromTicks(ticks);
         }
