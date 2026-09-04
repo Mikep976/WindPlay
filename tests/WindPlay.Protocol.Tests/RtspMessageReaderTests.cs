@@ -19,10 +19,26 @@ public sealed class RtspMessageReaderTests
         RtspRequestMessage? message = await reader.ReadAsync(stream, TestContext.Current.CancellationToken);
 
         Assert.NotNull(message);
+        Assert.Equal(RtspRequestMessage.WireProtocol.Rtsp, message.Protocol);
         Assert.Equal(RtspRequestMessage.RequestType.POST, message.Type);
         Assert.Equal("/pair-verify", message.Path);
         Assert.Equal("9", Assert.Single(message.Headers["CSeq"]));
         Assert.Equal(body, message.Body);
+    }
+
+    [Fact]
+    public async Task HttpProbeCanShareTheAirPlayListener()
+    {
+        byte[] request = Encoding.ASCII.GetBytes("GET /server-info HTTP/1.1\r\nHost: receiver.local\r\n\r\n");
+        await using var stream = new MemoryStream(request);
+        using var reader = new RtspMessageReader();
+
+        RtspRequestMessage? message = await reader.ReadAsync(stream, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(message);
+        Assert.Equal(RtspRequestMessage.WireProtocol.Http, message.Protocol);
+        Assert.Equal(RtspRequestMessage.RequestType.GET, message.Type);
+        Assert.Equal("/server-info", message.Path);
     }
 
     [Fact]
@@ -49,6 +65,20 @@ public sealed class RtspMessageReaderTests
     public async Task InvalidContentLengthRejectsRequest(string header)
     {
         byte[] request = Encoding.ASCII.GetBytes($"POST /pair RTSP/1.0\r\n{header}\r\n");
+        await using var stream = new MemoryStream(request);
+        using var reader = new RtspMessageReader();
+
+        await Assert.ThrowsAsync<RtspProtocolException>(
+            () => reader.ReadAsync(stream, TestContext.Current.CancellationToken).AsTask());
+    }
+
+    [Theory]
+    [InlineData("CSeq: -1\r\n")]
+    [InlineData("CSeq: nope\r\n")]
+    [InlineData("CSeq: 1\r\nCSeq: 2\r\n")]
+    public async Task InvalidSequenceRejectsRequest(string header)
+    {
+        byte[] request = Encoding.ASCII.GetBytes($"GET /info RTSP/1.0\r\n{header}\r\n");
         await using var stream = new MemoryStream(request);
         using var reader = new RtspMessageReader();
 

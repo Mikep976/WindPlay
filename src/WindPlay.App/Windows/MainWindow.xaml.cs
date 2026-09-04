@@ -16,7 +16,7 @@ public sealed partial class MainWindow : Window
 {
     private readonly ReceiverHostManager _receiver;
     private bool _updatingControls;
-    private int _sessionCount;
+    private readonly List<DeviceSession> _sessions = [];
     private DeviceSession? _activeSession;
 
     public MainWindow(ReceiverHostManager receiver)
@@ -123,28 +123,40 @@ public sealed partial class MainWindow : Window
     private void Receiver_SessionStarted(object? sender, DeviceSession session)
         => DispatcherQueue.TryEnqueue(() =>
         {
+            if (_sessions.Contains(session))
+                return;
+
+            _sessions.Add(session);
             _activeSession = session;
-            _sessionCount++;
-            SessionTitleText.Text = session.DeviceDisplayName;
-            SessionDetailText.Text = $"{session.DeviceModel ?? "Apple device"} • encrypted local stream";
-            SessionIcon.Glyph = session.DeviceModel?.Contains("Mac", StringComparison.OrdinalIgnoreCase) == true ? "\uE770" : "\uE8EA";
-            DisconnectSessionButton.Visibility = Visibility.Visible;
-            SessionProgress.IsActive = true;
+            ShowActiveSession(session);
         });
+
+    private void ShowActiveSession(DeviceSession session)
+    {
+        SessionTitleText.Text = session.DeviceDisplayName;
+        SessionDetailText.Text = _sessions.Count > 1
+            ? $"{session.DeviceModel ?? "Apple device"} • encrypted local stream • {_sessions.Count} active"
+            : $"{session.DeviceModel ?? "Apple device"} • encrypted local stream";
+        SessionIcon.Glyph = session.DeviceModel?.Contains("Mac", StringComparison.OrdinalIgnoreCase) == true ? "\uE770" : "\uE8EA";
+        DisconnectSessionButton.Visibility = Visibility.Visible;
+    }
 
     private void Receiver_SessionEnded(object? sender, DeviceSession session)
         => DispatcherQueue.TryEnqueue(() =>
         {
-            _sessionCount = Math.Max(0, _sessionCount - 1);
+            _sessions.Remove(session);
             if (ReferenceEquals(_activeSession, session))
-                _activeSession = null;
-            if (_sessionCount == 0)
+                _activeSession = _sessions.LastOrDefault();
+            if (_activeSession is null)
             {
                 SessionTitleText.Text = "Waiting for a device";
                 SessionDetailText.Text = "Keep this app open, then connect from Control Center.";
                 SessionIcon.Glyph = "\uE7F4";
                 DisconnectSessionButton.Visibility = Visibility.Collapsed;
-                SessionProgress.IsActive = false;
+            }
+            else
+            {
+                ShowActiveSession(_activeSession);
             }
         });
 

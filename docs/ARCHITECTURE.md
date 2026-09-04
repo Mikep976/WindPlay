@@ -14,8 +14,10 @@ flowchart TD
 
 ## Trust boundaries
 
-- Discovery and listeners accept private, loopback, link-local, and IPv6 unique-local addresses by default.
+- Discovery and listeners accept private, loopback, and IPv4 link-local addresses by default. The current media transport is IPv4-only.
+- The `_airplay._tcp` and `_raop._tcp` records intentionally share one hardened RTSP listener, matching current receiver behavior and avoiding an extra open port.
 - RTSP headers and bodies have fixed size and count limits; malformed data closes only that peer.
+- Failed passcode responses are rate-limited across reconnects by sender address.
 - Media sockets accept packets only from the IP address that created the paired RTSP session.
 - A random per-install Ed25519 seed is protected with Windows DPAPI at `CurrentUser` scope.
 - The passcode is also DPAPI-protected. Authentication responses are compared in constant time.

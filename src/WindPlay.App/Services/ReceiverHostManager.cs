@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net.Sockets;
 using WindPlay.App.Configuration;
@@ -33,6 +34,7 @@ public sealed class ReceiverStateChangedEventArgs(ReceiverState state, string? e
 public sealed class ReceiverHostManager : IAsyncDisposable
 {
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private readonly ConcurrentDictionary<DeviceSession, byte> _activeSessions = [];
     private IHost? _host;
     private SessionManager? _sessionManager;
 
@@ -106,18 +108,15 @@ public sealed class ReceiverHostManager : IAsyncDisposable
             IHost? host = _host;
             if (host is null)
             {
+                EndRemainingSessions();
                 SetState(ReceiverState.Stopped);
                 return;
             }
 
             SetState(ReceiverState.Stopping);
             _host = null;
-            if (_sessionManager is not null)
-            {
-                _sessionManager.SessionCreated -= OnSessionCreated;
-                _sessionManager.SessionClosed -= OnSessionClosed;
-                _sessionManager = null;
-            }
+            SessionManager? sessions = _sessionManager;
+            _sessionManager = null;
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(5));
@@ -132,6 +131,12 @@ public sealed class ReceiverHostManager : IAsyncDisposable
             finally
             {
                 host.Dispose();
+                if (sessions is not null)
+                {
+                    sessions.SessionCreated -= OnSessionCreated;
+                    sessions.SessionClosed -= OnSessionClosed;
+                }
+                EndRemainingSessions();
             }
 
             SetState(ReceiverState.Stopped);
@@ -168,7 +173,6 @@ public sealed class ReceiverHostManager : IAsyncDisposable
             options.AllowNonPrivateNetworks = Settings.AllowNonPrivateNetworks;
             options.MaximumConcurrentConnections = Settings.MaximumConnections;
         });
-        builder.Services.Configure<AirPlayConfig>(options => options.ServiceName = Settings.ReceiverName);
         builder.Services.UseAirPlayService();
 
         if (Settings.DiagnosticsEnabled)
@@ -190,9 +194,26 @@ public sealed class ReceiverHostManager : IAsyncDisposable
         return builder.Build();
     }
 
-    private void OnSessionCreated(object? sender, DeviceSession session) => SessionStarted?.Invoke(this, session);
+    private void OnSessionCreated(object? sender, DeviceSession session)
+    {
+        if (_activeSessions.TryAdd(session, 0))
+            SessionStarted?.Invoke(this, session);
+    }
 
-    private void OnSessionClosed(object? sender, DeviceSession session) => SessionEnded?.Invoke(this, session);
+    private void OnSessionClosed(object? sender, DeviceSession session)
+    {
+        if (_activeSessions.TryRemove(session, out _))
+            SessionEnded?.Invoke(this, session);
+    }
+
+    private void EndRemainingSessions()
+    {
+        foreach (DeviceSession session in _activeSessions.Keys)
+        {
+            if (_activeSessions.TryRemove(session, out _))
+                SessionEnded?.Invoke(this, session);
+        }
+    }
 
     private void SetState(ReceiverState state, string? errorMessage = null)
     {

@@ -7,7 +7,8 @@ namespace WindPlay.App.Playback;
 
 public sealed class PcmAudioSource : IDisposable
 {
-    private const int MaximumQueuedPackets = 64;
+    private const int MaximumQueuedPackets = 32;
+    private const int MaximumQueuedSampleFrames = 44_100 / 4;
     private static readonly TimeSpan PacketDuration = TimeSpan.FromTicks(352L * TimeSpan.TicksPerSecond / 44_100L);
 
     private readonly object _gate = new();
@@ -15,6 +16,7 @@ public sealed class PcmAudioSource : IDisposable
     private readonly MediaStreamSource _streamSource;
     private MediaStreamSourceSampleRequest? _pendingRequest;
     private MediaStreamSourceSampleRequestDeferral? _pendingDeferral;
+    private int _queuedSampleFrames;
     private ulong? _basePts;
     private long _lastTimestampTicks = -1;
     private bool _disposed;
@@ -59,12 +61,16 @@ public sealed class PcmAudioSource : IDisposable
             }
             else
             {
-                while (_packets.Count >= MaximumQueuedPackets)
+                int packetSampleFrames = GetSampleFrames(packet);
+                while (_packets.Count > 0 &&
+                    (_packets.Count >= MaximumQueuedPackets ||
+                     _queuedSampleFrames + packetSampleFrames > MaximumQueuedSampleFrames))
                 {
-                    _packets.Dequeue();
+                    _queuedSampleFrames -= GetSampleFrames(_packets.Dequeue());
                     PacketsDropped++;
                 }
                 _packets.Enqueue(packet);
+                _queuedSampleFrames += packetSampleFrames;
                 return;
             }
         }
@@ -85,6 +91,7 @@ public sealed class PcmAudioSource : IDisposable
             if (_packets.Count > 0)
             {
                 packet = _packets.Dequeue();
+                _queuedSampleFrames -= GetSampleFrames(packet.Value);
             }
             else if (_pendingRequest is null)
             {
@@ -136,6 +143,8 @@ public sealed class PcmAudioSource : IDisposable
         }
     }
 
+    private static int GetSampleFrames(PcmAudioData packet) => Math.Max(1, packet.Length / 4);
+
     private void OnClosed(MediaStreamSource sender, MediaStreamSourceClosedEventArgs args) => Dispose();
 
     public void Dispose()
@@ -147,6 +156,7 @@ public sealed class PcmAudioSource : IDisposable
                 return;
             _disposed = true;
             _packets.Clear();
+            _queuedSampleFrames = 0;
             deferral = _pendingDeferral;
             _pendingDeferral = null;
             _pendingRequest = null;

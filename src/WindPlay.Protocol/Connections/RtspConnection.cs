@@ -9,6 +9,7 @@ using Rebex.Security.Cryptography;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using static AirPlay.Core2.Models.Messages.Rtsp.RtspRequestMessage;
 
@@ -16,10 +17,13 @@ namespace AirPlay.Core2.Connections;
 
 public partial class RtspConnection : IDisposable
 {
+    private static readonly TimeSpan HandshakeReadTimeout = TimeSpan.FromSeconds(90);
+
     private readonly ILoggerFactory? _loggerFactory;
     private readonly ILogger<RtspConnection>? _logger;
     private readonly AirTunesConfig _airTunesConfig;
     private readonly ReceiverIdentity _identity;
+    private readonly AuthenticationRateLimiter _authenticationRateLimiter;
 
     private readonly TcpClient _client;
     private readonly IPEndPoint _endPoint;
@@ -42,12 +46,13 @@ public partial class RtspConnection : IDisposable
     private string? _DACPID;
 
     private DeviceSession? _deviceSession;
-    private bool _disconnectRequested = false;
+    private volatile bool _disconnectRequested;
 
     public RtspConnection(
         TcpClient client,
         IOptions<AirTunesConfig> options,
         ReceiverIdentity identity,
+        AuthenticationRateLimiter authenticationRateLimiter,
         ILoggerFactory? loggerFactory = null)
     {
         _client = client;
@@ -56,6 +61,7 @@ public partial class RtspConnection : IDisposable
             ?? throw new ArgumentException("TcpClient must be connected to a remote endpoint");
 
         _airTunesConfig = options.Value;
+        _authenticationRateLimiter = authenticationRateLimiter;
 
         _loggerFactory = loggerFactory;
         _logger = loggerFactory?.CreateLogger<RtspConnection>();
@@ -86,7 +92,17 @@ public partial class RtspConnection : IDisposable
             }
             finally
             {
-                ConnectionClosed?.Invoke(this, EventArgs.Empty);
+                if (_deviceSession is not null)
+                    _deviceSession.DisconnectRequested -= OnDeviceSessionDisconnectRequested;
+
+                try
+                {
+                    ConnectionClosed?.Invoke(this, EventArgs.Empty);
+                }
+                finally
+                {
+                    ClearEphemeralSecrets();
+                }
             }
         }, CancellationToken.None);
     }
@@ -107,7 +123,21 @@ public partial class RtspConnection : IDisposable
             RtspRequestMessage? requestMessage;
             try
             {
-                requestMessage = await reader.ReadAsync(networkStream, cancellationToken).ConfigureAwait(false);
+                if (_deviceSession is null)
+                {
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    timeout.CancelAfter(HandshakeReadTimeout);
+                    requestMessage = await reader.ReadAsync(networkStream, timeout.Token).ConfigureAwait(false);
+                }
+                else
+                {
+                    requestMessage = await reader.ReadAsync(networkStream, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger?.HandshakeTimedOut(_endPoint);
+                break;
             }
             catch (RtspProtocolException exception)
             {
@@ -118,6 +148,10 @@ public partial class RtspConnection : IDisposable
             {
                 break;
             }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
 
             if (requestMessage is null)
                 break;
@@ -125,7 +159,7 @@ public partial class RtspConnection : IDisposable
             RtspResponseMessage responseMessage = await HandleRequestMessageAsync(requestMessage, cancellationToken).ConfigureAwait(false);
             await HandleResponseMessageAsync(requestMessage, responseMessage, networkStream, cancellationToken).ConfigureAwait(false);
 
-            if (_disconnectRequested || (_deviceSession?.RequestedDisconnecet ?? false)) 
+            if (_disconnectRequested || (_deviceSession?.RequestedDisconnect ?? false))
                 break;
         }
     }
@@ -134,35 +168,71 @@ public partial class RtspConnection : IDisposable
     {
         var responseMessage = requestMessage.CreateResponse();
 
-        if (requestMessage.Headers.TryGetSingleValue("Active-Remote", out string? activeRemote))
+        if (requestMessage.Protocol == RtspRequestMessage.WireProtocol.Http)
+        {
+            responseMessage.Status = RtspResponseMessage.StatusCode.NOTFOUND;
+            responseMessage.Headers["Connection"] = ["close"];
+            _disconnectRequested = true;
+            return responseMessage;
+        }
+
+        if (requestMessage.Headers.TryGetSingleValue("Active-Remote", out string? activeRemote) &&
+            IsSafeSenderIdentifier(activeRemote))
             _ActiveRemote = activeRemote;
-        if (requestMessage.Headers.TryGetSingleValue("DACP-ID", out string? dacpId))
+        if (requestMessage.Headers.TryGetSingleValue("DACP-ID", out string? dacpId) &&
+            IsSafeSenderIdentifier(dacpId))
             _DACPID = dacpId;
 
         _logger?.RtspRequestMessageReceived(_ActiveRemote ?? "unknown", requestMessage.Type, requestMessage.Path);
 
         if (_airTunesConfig.RequirePassword && !_authenticated &&
-            !(requestMessage.Type == RequestType.GET && "/info".Equals(requestMessage.Path, StringComparison.OrdinalIgnoreCase)))
+            !IsInfoRequest(requestMessage))
         {
-            if (!requestMessage.Headers.TryGetSingleValue("Authorization", out string? authorization) ||
-                !DigestAuthenticator.Verify(
-                    authorization,
-                    requestMessage.Type.ToString(),
-                    requestMessage.Path,
-                    _airTunesConfig.Password,
-                    _authenticationNonce))
+            if (!_authenticationRateLimiter.CanAttempt(_endPoint.Address))
+            {
+                responseMessage.Status = RtspResponseMessage.StatusCode.FORBIDDEN;
+                responseMessage.Headers["Connection"] = ["close"];
+                _disconnectRequested = true;
+                return responseMessage;
+            }
+
+            if (!requestMessage.Headers.TryGetSingleValue("Authorization", out string? authorization))
             {
                 responseMessage.Status = RtspResponseMessage.StatusCode.UNAUTHORIZED;
                 responseMessage.Headers["WWW-Authenticate"] = [DigestAuthenticator.CreateChallenge(_authenticationNonce)];
                 return responseMessage;
             }
 
+            if (!DigestAuthenticator.Verify(
+                    authorization,
+                    requestMessage.Type.ToString(),
+                    requestMessage.Path,
+                    _airTunesConfig.Password,
+                    _authenticationNonce))
+            {
+                bool canRetry = _authenticationRateLimiter.RecordFailure(_endPoint.Address);
+                responseMessage.Status = canRetry
+                    ? RtspResponseMessage.StatusCode.UNAUTHORIZED
+                    : RtspResponseMessage.StatusCode.FORBIDDEN;
+                if (canRetry)
+                    responseMessage.Headers["WWW-Authenticate"] = [DigestAuthenticator.CreateChallenge(_authenticationNonce)];
+                else
+                {
+                    responseMessage.Headers["Connection"] = ["close"];
+                    _disconnectRequested = true;
+                }
+                return responseMessage;
+            }
+
+            _authenticationRateLimiter.RecordSuccess(_endPoint.Address);
             _authenticated = true;
         }
 
         try
         {
-            if (requestMessage.Type == RequestType.GET && "/info".Equals(requestMessage.Path, StringComparison.OrdinalIgnoreCase))
+            if (requestMessage.Type == RequestType.OPTIONS)
+                OnOptionsRequested(responseMessage);
+            else if (IsInfoRequest(requestMessage))
                 await OnGetInfoRequested(responseMessage, cancellationToken);
             else if (requestMessage.Type == RequestType.POST && "/pair-setup".Equals(requestMessage.Path, StringComparison.OrdinalIgnoreCase))
                 await OnPostPairSetupRequested(responseMessage, cancellationToken);
@@ -175,15 +245,15 @@ public partial class RtspConnection : IDisposable
             else if (requestMessage.Type == RequestType.GET_PARAMETER)
                 await OnGetParameterRequested(requestMessage, responseMessage, cancellationToken);
             else if (requestMessage.Type == RequestType.RECORD)
-                await OnRecordRequested(); // The sender wants to start streaming.
+                OnRecordRequested(responseMessage); // The sender wants to start streaming.
             else if (requestMessage.Type == RequestType.POST && "/feedback".Equals(requestMessage.Path, StringComparison.OrdinalIgnoreCase))
                 await OnPostFeedbackRequested(); // Sender heartbeat.
             else if (requestMessage.Type == RequestType.FLUSH)
-                await OnFlushRequested(requestMessage);
+                OnFlushRequested(requestMessage, responseMessage);
             else if (requestMessage.Type == RequestType.TEARDOWN)
                 await OnTeardownRequested(requestMessage);
             else if (requestMessage.Type == RequestType.SET_PARAMETER)
-                await OnSetParameterRequested(requestMessage);
+                OnSetParameterRequested(requestMessage, responseMessage);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -198,13 +268,21 @@ public partial class RtspConnection : IDisposable
         return responseMessage;
     }
 
+    private static bool IsInfoRequest(RtspRequestMessage requestMessage)
+        => requestMessage.Type == RequestType.GET &&
+            (requestMessage.Path.Equals("/info", StringComparison.OrdinalIgnoreCase) ||
+             requestMessage.Path.StartsWith("/info?", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsSafeSenderIdentifier(string value)
+        => value.Length is > 0 and <= 64 && value.All(character => char.IsAsciiLetterOrDigit(character));
+
     private async Task HandleResponseMessageAsync(RtspRequestMessage requestMessage, RtspResponseMessage responseMessage, NetworkStream networkStream, CancellationToken cancellationToken)
     {
         byte[] bodyBuffer = await responseMessage.ReadToEndAsync();
         responseMessage.Headers["Content-Length"] = [bodyBuffer.Length.ToString(CultureInfo.InvariantCulture)];
 
         StringBuilder stringBuilder = new();
-        stringBuilder.Append("RTSP/1.0 ")
+        stringBuilder.Append(requestMessage.Protocol == RtspRequestMessage.WireProtocol.Http ? "HTTP/1.1 " : "RTSP/1.0 ")
             .Append((int)responseMessage.Status)
             .Append(' ')
             .Append(GetReasonPhrase(responseMessage.Status))
@@ -241,9 +319,26 @@ public partial class RtspConnection : IDisposable
         RtspResponseMessage.StatusCode.BADREQUEST => "Bad Request",
         RtspResponseMessage.StatusCode.UNAUTHORIZED => "Unauthorized",
         RtspResponseMessage.StatusCode.FORBIDDEN => "Forbidden",
+        RtspResponseMessage.StatusCode.NOTFOUND => "Not Found",
         RtspResponseMessage.StatusCode.INTERNALSERVERERROR => "Internal Server Error",
         _ => "Unknown",
     };
+
+    private void OnDeviceSessionDisconnectRequested(object? sender, EventArgs args)
+    {
+        _disconnectRequested = true;
+        _client.Dispose();
+    }
+
+    private void ClearEphemeralSecrets()
+    {
+        if (_ecdhShared is not null)
+            CryptographicOperations.ZeroMemory(_ecdhShared);
+        if (_keyMsg is not null)
+            CryptographicOperations.ZeroMemory(_keyMsg);
+        _ecdhShared = null;
+        _keyMsg = null;
+    }
 
     public void Dispose() => _client.Dispose();
 }
@@ -264,6 +359,9 @@ internal static partial class RtspConnectionLoggers
 
     [LoggerMessage(LogLevel.Warning, "Rejected an invalid RTSP message from [{endPoint}]: {reason}")]
     public static partial void InvalidRtspMessage(this ILogger logger, EndPoint? endPoint, string reason);
+
+    [LoggerMessage(LogLevel.Warning, "Closed an incomplete AirPlay handshake from [{endPoint}] after the read timeout")]
+    public static partial void HandshakeTimedOut(this ILogger logger, EndPoint? endPoint);
 
     [LoggerMessage(LogLevel.Error, "RTSP message loop failed for client [{endPoint}]")]
     public static partial void MessageLoopFailed(this ILogger logger, EndPoint? endPoint, Exception exception);

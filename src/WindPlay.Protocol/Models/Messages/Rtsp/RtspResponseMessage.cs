@@ -25,6 +25,7 @@ partial class RtspResponseMessage
         BADREQUEST = 400,
         UNAUTHORIZED = 401,
         FORBIDDEN = 403,
+        NOTFOUND = 404,
         INTERNALSERVERERROR = 500
     }
 }

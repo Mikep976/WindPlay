@@ -58,7 +58,7 @@ public sealed class RtspMessageReader : IDisposable
 
         headerEnd += _start;
         int headerLength = headerEnd - _start;
-        var (requestType, path, headers, contentLength) = ParseHeader(_buffer.AsSpan(_start, headerLength));
+        var (protocol, requestType, path, headers, contentLength) = ParseHeader(_buffer.AsSpan(_start, headerLength));
 
         if (contentLength > _maximumBodyBytes)
             throw new RtspProtocolException($"RTSP body exceeds {_maximumBodyBytes.ToString(CultureInfo.InvariantCulture)} bytes.");
@@ -83,6 +83,7 @@ public sealed class RtspMessageReader : IDisposable
 
         return new RtspRequestMessage
         {
+            Protocol = protocol,
             Type = requestType,
             Path = path,
             Headers = headers,
@@ -112,7 +113,7 @@ public sealed class RtspMessageReader : IDisposable
         return -1;
     }
 
-    private static (RtspRequestMessage.RequestType Type, string Path, RtspHeadersCollection Headers, int ContentLength)
+    private static (RtspRequestMessage.WireProtocol Protocol, RtspRequestMessage.RequestType Type, string Path, RtspHeadersCollection Headers, int ContentLength)
         ParseHeader(ReadOnlySpan<byte> bytes)
     {
         foreach (byte value in bytes)
@@ -127,8 +128,14 @@ public sealed class RtspMessageReader : IDisposable
             throw new RtspProtocolException("RTSP request line is missing.");
 
         string[] requestLine = lines[0].Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
-        if (requestLine.Length != 3 || !string.Equals(requestLine[2], "RTSP/1.0", StringComparison.Ordinal))
+        if (requestLine.Length != 3)
             throw new RtspProtocolException("Invalid RTSP request line.");
+        RtspRequestMessage.WireProtocol protocol = requestLine[2] switch
+        {
+            "RTSP/1.0" => RtspRequestMessage.WireProtocol.Rtsp,
+            "HTTP/1.1" => RtspRequestMessage.WireProtocol.Http,
+            _ => throw new RtspProtocolException("Unsupported request protocol."),
+        };
         if (!RtspRequestMessage.TryParseType(requestLine[0], out var type))
             throw new RtspProtocolException("Unsupported RTSP method.");
         if (requestLine[1].Length is 0 or > 2048 || ContainsControlCharacter(requestLine[1]))
@@ -166,7 +173,12 @@ public sealed class RtspMessageReader : IDisposable
                 throw new RtspProtocolException("Invalid RTSP Content-Length.");
         }
 
-        return (type, requestLine[1], headers, contentLength);
+        if (headers.TryGetValue("CSeq", out RtspHeader? sequenceHeader) &&
+            (sequenceHeader.Values.Length != 1 ||
+             !uint.TryParse(sequenceHeader.Values[0], NumberStyles.None, CultureInfo.InvariantCulture, out _)))
+            throw new RtspProtocolException("Invalid RTSP CSeq.");
+
+        return (protocol, type, requestLine[1], headers, contentLength);
     }
 
     private void CompactOrGrow(int requiredCapacity)

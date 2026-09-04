@@ -6,6 +6,7 @@ using AirPlay.Core2.Models.Messages;
 using AirPlay.Core2.Models.Messages.Audio;
 using Microsoft.Extensions.Logging;
 using System.Net;
+using System.Security.Cryptography;
 
 namespace AirPlay.Core2.Models;
 
@@ -19,12 +20,16 @@ public class DeviceSession(
     private readonly byte[] _decryptedAesKey = new byte[16];
     private readonly AudioTimingConnection _timingConnection = new(remoteAddress, timingPort);
     private Action<double>? _remoteSetVolumeAction;
+    private int _disposed;
+    private int _disconnectRequested;
 
     public event EventHandler? AudioControllerCreated;
     public event EventHandler? AudioControllerClosed;
 
     public event EventHandler? MirrorControllerCreated;
     public event EventHandler? MirrorControllerClosed;
+
+    public event EventHandler? DisconnectRequested;
 
     public required string DeviceDisplayName { get; init; }
 
@@ -38,7 +43,7 @@ public class DeviceSession(
 
     public bool IsMirrorSession { get; init; }
 
-    public bool RequestedDisconnecet { get; private set; }
+    public bool RequestedDisconnect => Volatile.Read(ref _disconnectRequested) != 0;
 
     public double Volume { get; private set; } = 100;
 
@@ -51,6 +56,8 @@ public class DeviceSession(
     public MirrorController? MirrorController { get; private set; }
 
     public ushort TimingPort => _timingConnection.LocalPort;
+
+    public IPAddress RemoteAddress => remoteAddress;
 
     public event EventHandler<MediaProgressInfo>? MediaProgressInfoReceived;
     public event EventHandler<MediaWorkInfo>? MediaWorkInfoReceived;
@@ -124,14 +131,22 @@ public class DeviceSession(
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
         CloseAudioController();
         CloseMirrorController();
         _timingConnection.Dispose();
+        CryptographicOperations.ZeroMemory(_decryptedAesKey);
     }
 
     public void BeginTiming() => _timingConnection.BeginMessageLoopWorker();
     
-    public void Disconnect() => RequestedDisconnecet = true;
+    public void Disconnect()
+    {
+        if (Interlocked.Exchange(ref _disconnectRequested, 1) == 0)
+            DisconnectRequested?.Invoke(this, EventArgs.Empty);
+    }
 
     public async Task SetVolumeAsync(double volume, HttpClient httpClient)
     {
@@ -153,7 +168,7 @@ public class DeviceSession(
         {
             _remoteSetVolumeAction = volume =>
             {
-                Volume = (volume + 30) / 30 * 100;
+                Volume = volume <= -30 ? 0 : Math.Clamp((volume + 30) / 30 * 100, 0, 100);
                 RemoteSetVolumeRequest?.Invoke(this, Volume);
             };
             _remoteSetVolumeAction = _remoteSetVolumeAction.Debounce(250);

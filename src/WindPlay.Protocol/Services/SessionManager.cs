@@ -41,7 +41,7 @@ public class SessionManager
     {
         foreach (var kvp in _sessions)
         {
-            if (kvp.Value.DacpId == dacpId)
+            if (string.Equals(kvp.Value.DacpId, dacpId, StringComparison.OrdinalIgnoreCase))
             {
                 session = kvp.Value;
                 return true;

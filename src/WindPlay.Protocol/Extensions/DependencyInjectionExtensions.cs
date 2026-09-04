@@ -14,14 +14,11 @@ public static class DependencyInjectionExtensions
         public void UseAirPlayService()
         {
             serviceDescriptors.AddOptions<AirTunesConfig>();
-            serviceDescriptors.AddOptions<AirPlayConfig>();
             serviceDescriptors.TryAddSingleton(_ => ReceiverIdentity.CreateRandom());
+            serviceDescriptors.TryAddSingleton<AuthenticationRateLimiter>();
 
             serviceDescriptors.AddSingleton<AirTunesService>();
             serviceDescriptors.AddHostedService(s => s.GetRequiredService<AirTunesService>());
-
-            serviceDescriptors.AddSingleton<AirPlayService>();
-            serviceDescriptors.AddHostedService(s => s.GetRequiredService<AirPlayService>());
 
             serviceDescriptors.AddSingleton<DacpDiscoveryService>();
             serviceDescriptors.AddHostedService(s => s.GetRequiredService<DacpDiscoveryService>());

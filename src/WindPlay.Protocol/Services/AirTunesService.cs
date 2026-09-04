@@ -12,7 +12,7 @@ namespace AirPlay.Core2.Services;
 
 public class AirTunesService(SessionManager sessionManager,
     ILoggerFactory loggerFactory, IOptions<AirTunesConfig> options,
-    ReceiverIdentity identity) : BackgroundService
+    ReceiverIdentity identity, AuthenticationRateLimiter authenticationRateLimiter) : BackgroundService
 {
     private readonly ILogger<AirTunesService> _logger = loggerFactory.CreateLogger<AirTunesService>();
 
@@ -42,7 +42,7 @@ public class AirTunesService(SessionManager sessionManager,
                 continue;
             }
 
-            var connection = new RtspConnection(client, options, identity, loggerFactory);
+            var connection = new RtspConnection(client, options, identity, authenticationRateLimiter, loggerFactory);
             connection.SessionPaired += (_, session) =>
             {
                 sessionManager.TryAddSession(remoteEndPoint, session);

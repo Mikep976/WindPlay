@@ -8,8 +8,7 @@ using Microsoft.Extensions.Options;
 namespace AirPlay.Core2;
 
 public partial class AirPlayPublisher(MulticastService multicastService, ILogger<AirPlayPublisher> logger,
-    IOptions<AirTunesConfig> airTunesConfig, IOptions<AirPlayConfig> airPlayConfig,
-    ReceiverIdentity identity) : IHostedService
+    IOptions<AirTunesConfig> airTunesConfig, ReceiverIdentity identity) : IHostedService
 {
     private readonly ServiceDiscovery _serviceDiscovery = new(multicastService);
 
@@ -53,9 +52,9 @@ public partial class AirPlayPublisher(MulticastService multicastService, ILogger
 
         ServiceProfile airPlayProfile = new
         (
-            airPlayConfig.Value.ServiceName,
+            airTunesConfig.Value.ServiceName,
             AirPlayType,
-            airPlayConfig.Value.Port
+            airTunesConfig.Value.Port
         );
 
         airPlayProfile.AddProperty("acl", "0"); // accessControlLevel
@@ -74,7 +73,7 @@ public partial class AirPlayPublisher(MulticastService multicastService, ILogger
         airPlayProfile.AddProperty("pk", identity.PublicKeyHex); // publicKey
 
         _serviceDiscovery.Advertise(airPlayProfile);
-        logger.AirPlayPublished(airPlayConfig.Value.Port);
+        logger.AirPlayPublished(airTunesConfig.Value.Port);
 
         #endregion
 

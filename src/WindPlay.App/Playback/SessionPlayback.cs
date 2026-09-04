@@ -14,6 +14,7 @@ internal sealed class SessionPlayback : IDisposable
 {
     private const int MaximumPrerollFrames = 3;
     private const int MaximumPrerollAudioPackets = 32;
+    private const int MaximumPrerollAudioSampleFrames = 44_100 / 4;
 
     private readonly DeviceSession _session;
     private readonly ReceiverSettings _settings;
@@ -21,6 +22,7 @@ internal sealed class SessionPlayback : IDisposable
     private readonly object _gate = new();
     private readonly Queue<H264Data> _videoPreroll = new();
     private readonly Queue<PcmAudioData> _audioPreroll = new();
+    private int _audioPrerollSampleFrames;
     private readonly System.Threading.Timer _statisticsTimer;
 
     private HardwareVideoSource? _videoSource;
@@ -37,7 +39,9 @@ internal sealed class SessionPlayback : IDisposable
         _settings = settings;
         _dispatcherQueue = dispatcherQueue;
         session.MirrorControllerCreated += OnMirrorControllerCreated;
+        session.MirrorControllerClosed += OnMirrorControllerClosed;
         session.AudioControllerCreated += OnAudioControllerCreated;
+        session.AudioControllerClosed += OnAudioControllerClosed;
         session.RemoteSetVolumeRequest += OnRemoteSetVolumeRequest;
         _statisticsTimer = new System.Threading.Timer(
             _ => _dispatcherQueue.TryEnqueue(UpdateStatistics),
@@ -68,6 +72,27 @@ internal sealed class SessionPlayback : IDisposable
         _audioController = controller;
         controller.AudioDataReceived += OnAudioDataReceived;
         _dispatcherQueue.TryEnqueue(ConfigureAudio);
+    }
+
+    private void OnMirrorControllerClosed(object? sender, EventArgs args)
+    {
+        MirrorController? controller = _mirrorController;
+        _mirrorController = null;
+        if (controller is not null)
+        {
+            controller.FrameSizeChanged -= OnFrameSizeChanged;
+            controller.H264DataReceived -= OnVideoFrameReceived;
+        }
+        _dispatcherQueue.TryEnqueue(CloseVideo);
+    }
+
+    private void OnAudioControllerClosed(object? sender, EventArgs args)
+    {
+        AudioController? controller = _audioController;
+        _audioController = null;
+        if (controller is not null)
+            controller.AudioDataReceived -= OnAudioDataReceived;
+        _dispatcherQueue.TryEnqueue(CloseAudio);
     }
 
     private void OnFrameSizeChanged(object? sender, Size size)
@@ -107,9 +132,13 @@ internal sealed class SessionPlayback : IDisposable
             source = _audioSource;
             if (source is null)
             {
-                while (_audioPreroll.Count >= MaximumPrerollAudioPackets)
-                    _audioPreroll.Dequeue();
+                int packetSampleFrames = GetAudioSampleFrames(packet);
+                while (_audioPreroll.Count > 0 &&
+                    (_audioPreroll.Count >= MaximumPrerollAudioPackets ||
+                     _audioPrerollSampleFrames + packetSampleFrames > MaximumPrerollAudioSampleFrames))
+                    _audioPrerollSampleFrames -= GetAudioSampleFrames(_audioPreroll.Dequeue());
                 _audioPreroll.Enqueue(packet);
+                _audioPrerollSampleFrames += packetSampleFrames;
                 return;
             }
         }
@@ -119,7 +148,7 @@ internal sealed class SessionPlayback : IDisposable
 
     private void ConfigureVideo(int width, int height)
     {
-        if (_disposed)
+        if (_disposed || _mirrorController is null)
             return;
 
         HardwareVideoSource newSource = new(width, height);
@@ -147,7 +176,7 @@ internal sealed class SessionPlayback : IDisposable
 
     private void ConfigureAudio()
     {
-        if (_disposed || _audioSource is not null)
+        if (_disposed || _audioController is null || _audioSource is not null)
             return;
 
         PcmAudioSource source = new();
@@ -157,6 +186,7 @@ internal sealed class SessionPlayback : IDisposable
             _audioSource = source;
             preroll = [.. _audioPreroll];
             _audioPreroll.Clear();
+            _audioPrerollSampleFrames = 0;
         }
 
         _audioPlayer = new MediaPlayer
@@ -188,6 +218,44 @@ internal sealed class SessionPlayback : IDisposable
             _window.UpdatePerformance(source.FramesReceived, source.FramesDropped);
     }
 
+    private void CloseVideo()
+    {
+        HardwareVideoSource? source;
+        PlaybackWindow? window;
+        lock (_gate)
+        {
+            while (_videoPreroll.Count > 0)
+                _videoPreroll.Dequeue().Dispose();
+            source = _videoSource;
+            _videoSource = null;
+            window = _window;
+            _window = null;
+        }
+
+        window?.EndSession();
+        source?.Dispose();
+    }
+
+    private void CloseAudio()
+    {
+        PcmAudioSource? source;
+        MediaPlayer? player;
+        lock (_gate)
+        {
+            _audioPreroll.Clear();
+            _audioPrerollSampleFrames = 0;
+            source = _audioSource;
+            _audioSource = null;
+            player = _audioPlayer;
+            _audioPlayer = null;
+        }
+
+        player?.Dispose();
+        source?.Dispose();
+    }
+
+    private static int GetAudioSampleFrames(PcmAudioData packet) => Math.Max(1, packet.Length / 4);
+
     public void Dispose()
     {
         lock (_gate)
@@ -198,11 +266,14 @@ internal sealed class SessionPlayback : IDisposable
             while (_videoPreroll.Count > 0)
                 _videoPreroll.Dequeue().Dispose();
             _audioPreroll.Clear();
+            _audioPrerollSampleFrames = 0;
         }
 
         _statisticsTimer.Dispose();
         _session.MirrorControllerCreated -= OnMirrorControllerCreated;
+        _session.MirrorControllerClosed -= OnMirrorControllerClosed;
         _session.AudioControllerCreated -= OnAudioControllerCreated;
+        _session.AudioControllerClosed -= OnAudioControllerClosed;
         _session.RemoteSetVolumeRequest -= OnRemoteSetVolumeRequest;
         if (_mirrorController is not null)
         {

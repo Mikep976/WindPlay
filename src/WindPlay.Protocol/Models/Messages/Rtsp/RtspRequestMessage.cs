@@ -3,6 +3,8 @@ namespace AirPlay.Core2.Models.Messages.Rtsp;
 /// <summary>A fully framed RTSP request. Parsing is performed by <see cref="RtspMessageReader"/>.</summary>
 public sealed class RtspRequestMessage
 {
+    public WireProtocol Protocol { get; init; } = WireProtocol.Rtsp;
+
     public required RequestType Type { get; init; }
 
     public required string Path { get; init; }
@@ -10,6 +12,12 @@ public sealed class RtspRequestMessage
     public required byte[] Body { get; init; }
 
     public required RtspHeadersCollection Headers { get; init; }
+
+    public enum WireProtocol : ushort
+    {
+        Rtsp = 0,
+        Http = 1,
+    }
 
     public enum RequestType : ushort
     {
@@ -44,4 +52,3 @@ public sealed class RtspRequestMessage
         return false;
     }
 }
-

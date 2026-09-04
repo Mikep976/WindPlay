@@ -7,7 +7,6 @@ using Microsoft.Extensions.Logging;
 using Rebex.Security.Cryptography;
 using System.Globalization;
 using System.Text;
-using System.Text.RegularExpressions;
 using static AirPlay.Core2.Models.Messages.Rtsp.RtspResponseMessage;
 
 namespace AirPlay.Core2.Connections;
@@ -15,6 +14,9 @@ namespace AirPlay.Core2.Connections;
 public partial class RtspConnection
 {
     private const int MaximumSetupBodyBytes = 256 * 1024;
+    private const int MaximumTextParameterBytes = 4 * 1024;
+    private const int MaximumMetadataBytes = 512 * 1024;
+    private const string SupportedMethods = "SETUP, RECORD, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER";
 
     private async Task OnGetInfoRequested(RtspResponseMessage responseMessage, CancellationToken cancellationToken)
     {
@@ -67,6 +69,7 @@ public partial class RtspConnection
                 }
             },
             { "vv", 2 },
+            { "initialVolume", 0.0 },
             { "statusFlags", _airTunesConfig.RequirePassword ? 132 : 68 },
             { "keepAliveLowPower", true },
             { "sourceVersion", Constants.AIPLAY_SERVICE_VERSION },
@@ -289,104 +292,69 @@ public partial class RtspConnection
         {
             if (_deviceSession is null ||
                 nSObject.ToObject() is not object[] { Length: > 0 } streams ||
-                streams[0] is not Dictionary<string, object> stream ||
-                !stream.TryGetValue("type", out object? typeValue) ||
-                !TryGetInt32(typeValue, out int type))
+                !TryParseStreamSetups(
+                    streams,
+                    _deviceSession.AudioController is not null,
+                    _deviceSession.MirrorController is not null,
+                    out List<StreamSetup> streamSetups))
             {
                 responseMessage.Status = StatusCode.BADREQUEST;
                 return;
             }
 
-            NSDictionary? keyValuePairs = null;
-
-            if (type == 96)
+            NSArray responseStreams = new();
+            bool audioCreated = false;
+            bool mirrorCreated = false;
+            try
             {
-                if (_deviceSession.AudioController is not null ||
-                    !stream.TryGetValue("audioFormat", out object? audioFormatValue) ||
-                    !TryGetInt32(audioFormatValue, out int audioFormat) ||
-                    !stream.TryGetValue("controlPort", out object? controlPortValue) ||
-                    !TryGetUInt16(controlPortValue, out ushort controlPort))
+                foreach (StreamSetup setup in streamSetups)
                 {
-                    responseMessage.Status = StatusCode.BADREQUEST;
-                    return;
-                }
-
-                stream.TryGetValue("latencyMin", out object? latencyMinValue);
-                stream.TryGetValue("latencyMax", out object? latencyMaxValue);
-                int? latencyMin = TryGetInt32(latencyMinValue, out int parsedLatencyMin) ? parsedLatencyMin : null;
-                int? latencyMax = TryGetInt32(latencyMaxValue, out int parsedLatencyMax) ? parsedLatencyMax : null;
-
-                _deviceSession.CreateAudioController
-                (
-                    controlPort,
-                    (AudioFormat)audioFormat,
-                    latencyMin,
-                    latencyMax
-                );
-
-                _deviceSession.AudioController?.BeginConnectionWorkers();
-
-                keyValuePairs = new()
-                {
+                    if (setup is AudioStreamSetup audio)
                     {
-                        "streams",
-                        new NSArray()
+                        _deviceSession.CreateAudioController(
+                            audio.ControlPort,
+                            audio.Format,
+                            audio.LatencyMin,
+                            audio.LatencyMax);
+                        audioCreated = true;
+                        _deviceSession.AudioController!.BeginConnectionWorkers();
+                        responseStreams.Add(new NSDictionary
                         {
-                            new NSDictionary
-                            {
-                                { "dataPort", (int)_deviceSession!.AudioController!.DataPort },
-                                { "controlPort", (int)_deviceSession!.AudioController!.ControlPort },
-                                { "type", 96 },
-                            }
-                        }
-                    },
-                };
-
-            }
-            else if (type == 110)
-            {
-                if (_deviceSession.MirrorController is not null ||
-                    !stream.TryGetValue("streamConnectionID", out object? streamConnectionIDValue) ||
-                    !TryGetStreamConnectionId(streamConnectionIDValue, out string streamConnectionId))
-                {
-                    responseMessage.Status = StatusCode.BADREQUEST;
-                    return;
-                }
-
-                stream.TryGetValue("latencyMs", out object? latencyMsValue);
-                stream.TryGetValue("timestampinfo", out object? timestampinfoValue);
-
-                _deviceSession.CreateMirrorController(streamConnectionId);
-                _deviceSession.MirrorController?.BeginConnectionWorkers();
-
-                keyValuePairs = new()
-                {
+                            { "dataPort", (int)_deviceSession.AudioController.DataPort },
+                            { "controlPort", (int)_deviceSession.AudioController.ControlPort },
+                            { "type", 96 },
+                        });
+                    }
+                    else if (setup is MirrorStreamSetup mirror)
                     {
-                        "streams",
-                        new NSArray()
+                        _deviceSession.CreateMirrorController(mirror.StreamConnectionId);
+                        mirrorCreated = true;
+                        _deviceSession.MirrorController!.BeginConnectionWorkers();
+                        responseStreams.Add(new NSDictionary
                         {
-                            new NSDictionary
-                            {
-                                { "dataPort", (int)_deviceSession!.MirrorController!.DataPort },
-                                { "type", 110 },
-                            }
-                        }
-                    },
-                };
+                            { "dataPort", (int)_deviceSession.MirrorController.DataPort },
+                            { "type", 110 },
+                        });
+                    }
+                }
             }
-            else
+            catch
             {
-                responseMessage.Status = StatusCode.BADREQUEST;
-                return;
+                if (mirrorCreated)
+                    _deviceSession.CloseMirrorController();
+                if (audioCreated)
+                    _deviceSession.CloseAudioController();
+                throw;
             }
 
-            if (keyValuePairs is not null)
+            NSDictionary keyValuePairs = new()
             {
-                var plistBytes = BinaryPropertyListWriter.WriteToArray(keyValuePairs);
+                { "streams", responseStreams },
+            };
+            byte[] plistBytes = BinaryPropertyListWriter.WriteToArray(keyValuePairs);
 
-                responseMessage.Headers.Add("Content-Type", "application/x-apple-binary-plist");
-                await responseMessage.WriteAsync(plistBytes, 0, plistBytes.Length, cancellationToken);
-            }
+            responseMessage.Headers.Add("Content-Type", "application/x-apple-binary-plist");
+            await responseMessage.WriteAsync(plistBytes, 0, plistBytes.Length, cancellationToken);
         }
         else
         {
@@ -441,6 +409,7 @@ public partial class RtspConnection
             }
 
             _deviceSession = deviceSession;
+            deviceSession.DisconnectRequested += OnDeviceSessionDisconnectRequested;
 
             SessionPaired?.Invoke(this, deviceSession);
 
@@ -505,27 +474,127 @@ public partial class RtspConnection
         }
     }
 
+    internal static bool TryParseStreamSetups(
+        object[] streams,
+        bool hasAudioController,
+        bool hasMirrorController,
+        out List<StreamSetup> setups)
+    {
+        setups = [];
+        if (streams.Length is 0 or > 2)
+            return false;
+
+        List<StreamSetup> parsedSetups = [];
+        bool includesAudio = false;
+        bool includesMirror = false;
+        foreach (object item in streams)
+        {
+            if (item is not Dictionary<string, object> stream ||
+                !stream.TryGetValue("type", out object? typeValue) ||
+                !TryGetInt32(typeValue, out int type))
+                return false;
+
+            if (type == 96)
+            {
+                if (hasAudioController || includesAudio ||
+                    !stream.TryGetValue("audioFormat", out object? formatValue) ||
+                    !TryGetInt32(formatValue, out int formatNumber) ||
+                    !IsSupportedAudioFormat(formatNumber) ||
+                    !stream.TryGetValue("controlPort", out object? controlPortValue) ||
+                    !TryGetUInt16(controlPortValue, out ushort controlPort) ||
+                    !TryGetOptionalNonNegativeInt32(stream, "latencyMin", out int? latencyMin) ||
+                    !TryGetOptionalNonNegativeInt32(stream, "latencyMax", out int? latencyMax))
+                    return false;
+
+                includesAudio = true;
+                parsedSetups.Add(new AudioStreamSetup((AudioFormat)formatNumber, controlPort, latencyMin, latencyMax));
+            }
+            else if (type == 110)
+            {
+                if (hasMirrorController || includesMirror ||
+                    !stream.TryGetValue("streamConnectionID", out object? connectionIdValue) ||
+                    !TryGetStreamConnectionId(connectionIdValue, out string streamConnectionId))
+                    return false;
+
+                includesMirror = true;
+                parsedSetups.Add(new MirrorStreamSetup(streamConnectionId));
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        setups = parsedSetups;
+        return true;
+    }
+
+    private static bool TryGetOptionalNonNegativeInt32(
+        Dictionary<string, object> dictionary,
+        string key,
+        out int? result)
+    {
+        if (!dictionary.TryGetValue(key, out object? value))
+        {
+            result = null;
+            return true;
+        }
+
+        if (TryGetInt32(value, out int number) && number >= 0)
+        {
+            result = number;
+            return true;
+        }
+
+        result = null;
+        return false;
+    }
+
+    private static bool IsSupportedAudioFormat(int value)
+        => value is (int)AudioFormat.PCM or (int)AudioFormat.ALAC or
+            (int)AudioFormat.AAC or (int)AudioFormat.AAC_ELD;
+
+    internal abstract record StreamSetup;
+
+    internal sealed record AudioStreamSetup(
+        AudioFormat Format,
+        ushort ControlPort,
+        int? LatencyMin,
+        int? LatencyMax) : StreamSetup;
+
+    internal sealed record MirrorStreamSetup(string StreamConnectionId) : StreamSetup;
+
+    private static void OnOptionsRequested(RtspResponseMessage responseMessage)
+        => responseMessage.Headers["Public"] = [SupportedMethods];
+
     private async Task OnGetParameterRequested(RtspRequestMessage requestMessage, RtspResponseMessage responseMessage, CancellationToken cancellationToken)
     {
-        string parameter = Encoding.ASCII.GetString(requestMessage.Body).Trim();
+        if (requestMessage.Body.Length > MaximumTextParameterBytes || !IsAsciiParameterBody(requestMessage.Body))
+        {
+            responseMessage.Status = StatusCode.BADREQUEST;
+            return;
+        }
 
-        if (parameter == "volume")
+        string[] parameters = Encoding.ASCII.GetString(requestMessage.Body)
+            .Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parameters.Any(parameter => parameter.Equals("volume", StringComparison.OrdinalIgnoreCase)))
         {
             // The volume is a float value representing the audio attenuation in dB.
             // Then it goes from –30 to 0.
             // A value of –144 means the audio is muted.
             double volume = ((_deviceSession?.Volume ?? 100) / 100 * 30) - 30;
-            byte[] output = Encoding.ASCII.GetBytes($"volume: {volume:0.000000}\r\n"); // if missing the "\r\n", the device will disconnect
+            byte[] output = Encoding.ASCII.GetBytes(
+                $"volume: {volume.ToString("0.000000", CultureInfo.InvariantCulture)}\r\n");
 
             responseMessage.Headers.Add("Content-Type", "text/parameters");
             await responseMessage.WriteAsync(output, 0, output.Length, cancellationToken);
         }
     }
 
-    private static Task OnRecordRequested()
+    private static void OnRecordRequested(RtspResponseMessage responseMessage)
     {
-        // return nothing
-        return Task.CompletedTask;
+        responseMessage.Headers["Audio-Latency"] = ["0"];
+        responseMessage.Headers["Audio-Jack-Status"] = ["connected; type=digital"];
     }
 
     private static Task OnPostFeedbackRequested()
@@ -534,108 +603,253 @@ public partial class RtspConnection
         return Task.CompletedTask;
     }
 
-    private Task OnFlushRequested(RtspRequestMessage requestMessage)
+    private void OnFlushRequested(RtspRequestMessage requestMessage, RtspResponseMessage responseMessage)
     {
         int nextSeq = -1;
 
-        if (requestMessage.Headers.TryGetValue("RTP-Info", out var value))
+        if (requestMessage.Headers.TryGetSingleValue("RTP-Info", out string? rtpInfo) &&
+            !TryParseRtpSequence(rtpInfo, out nextSeq))
         {
-            string rtpInfo = ((string[])value)[0].Trim();
-
-            if (!string.IsNullOrEmpty(rtpInfo))
-            {
-                var match = FindSeqRegex.Match(rtpInfo);
-
-                if (match.Success)
-                    nextSeq = int.Parse(match.Groups[1].Value);
-            }
+            responseMessage.Status = StatusCode.BADREQUEST;
+            return;
         }
 
         _deviceSession?.AudioController?.Flush(nextSeq);
-        return Task.CompletedTask;
     }
 
     private Task OnTeardownRequested(RtspRequestMessage requestMessage)
     {
-        NSDictionary nsDict = (PropertyListParser.Parse(requestMessage.Body) as NSDictionary)!;
-        Dictionary<string, NSObject> plistDict = nsDict.ToDictionary();
+        if (!TryParseTeardown(
+            requestMessage.Body,
+            out bool closeAudio,
+            out bool closeMirror,
+            out bool closeSession))
+            throw new InvalidDataException("The sender provided an invalid TEARDOWN body.");
 
-        if (plistDict.TryGetValue("streams", out NSObject? nSObject))
-        {
-            foreach (var obj in (object[])nSObject.ToObject())
-            {
-                Dictionary<string, object> stream = (Dictionary<string, object>)obj;
-                short type = Convert.ToInt16((int)stream["type"]);
-
-                if (type == 96) _deviceSession?.CloseAudioController();
-                if (type == 110) _deviceSession?.CloseMirrorController();
-            }
-        }
-        else
-        {
+        if (closeAudio)
             _deviceSession?.CloseAudioController();
+        if (closeMirror)
             _deviceSession?.CloseMirrorController();
-
+        if (closeSession)
+        {
             _disconnectRequested = true;
         }
 
         return Task.CompletedTask;
     }
 
-    private Task OnSetParameterRequested(RtspRequestMessage requestMessage)
+    private void OnSetParameterRequested(RtspRequestMessage requestMessage, RtspResponseMessage responseMessage)
     {
-        if (!requestMessage.Headers.TryGetValue("Content-Type", out var contentTypeValue)) return Task.CompletedTask;
-
-        string contentType = contentTypeValue.Values[0];
+        if (!requestMessage.Headers.TryGetSingleValue("Content-Type", out string? contentType))
+        {
+            responseMessage.Status = StatusCode.BADREQUEST;
+            return;
+        }
 
         if (contentType.Equals("text/parameters", StringComparison.OrdinalIgnoreCase))
         {
-            string[] keyPair = [.. Encoding.ASCII.GetString(requestMessage.Body)
-            .Split(":", StringSplitOptions.RemoveEmptyEntries).Select(b => b.Trim())];
-
-            (string key, string value) = (keyPair[0], keyPair[1]);
-
-            if (key.Equals("volume", StringComparison.OrdinalIgnoreCase))
-                _deviceSession?.RemoteSetVolume(double.Parse(value));
-            else if (key.Equals("progress", StringComparison.OrdinalIgnoreCase))
+            if (requestMessage.Body.Length is 0 or > MaximumTextParameterBytes ||
+                !IsAsciiParameterBody(requestMessage.Body))
             {
-                string[] progressValues = value.Split("/", StringSplitOptions.RemoveEmptyEntries);
-
-                var start = long.Parse(progressValues[0]);
-                var current = long.Parse(progressValues[1]);
-                var end = long.Parse(progressValues[2]);
-
-                _deviceSession?.RemoteSetProgress(new
-                (
-                    TimeSpan.FromSeconds((end - start) / 44100),
-                    TimeSpan.FromSeconds((current - start) / 44100)
-                ));
+                responseMessage.Status = StatusCode.BADREQUEST;
+                return;
             }
+
+            string[] lines = Encoding.ASCII.GetString(requestMessage.Body)
+                .Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            double? requestedVolume = null;
+            MediaProgressInfo? requestedProgress = null;
+            foreach (string line in lines)
+            {
+                int separator = line.IndexOf(':');
+                if (separator <= 0 || separator == line.Length - 1)
+                {
+                    responseMessage.Status = StatusCode.BADREQUEST;
+                    return;
+                }
+
+                string key = line[..separator].Trim();
+                ReadOnlySpan<char> value = line.AsSpan(separator + 1).Trim();
+                if (key.Equals("volume", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!TryParseVolume(value, out double volume))
+                    {
+                        responseMessage.Status = StatusCode.BADREQUEST;
+                        return;
+                    }
+                    requestedVolume = volume;
+                }
+                else if (key.Equals("progress", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!TryParseProgress(value, out MediaProgressInfo progress))
+                    {
+                        responseMessage.Status = StatusCode.BADREQUEST;
+                        return;
+                    }
+                    requestedProgress = progress;
+                }
+            }
+
+            if (requestedVolume is double volume)
+                _deviceSession?.RemoteSetVolume(volume);
+            if (requestedProgress is MediaProgressInfo progress)
+                _deviceSession?.RemoteSetProgress(progress);
         }
         else if (contentType.Equals("application/x-dmap-tagged", StringComparison.OrdinalIgnoreCase))
         {
+            if (requestMessage.Body.Length is 0 or > MaximumMetadataBytes)
+            {
+                responseMessage.Status = StatusCode.BADREQUEST;
+                return;
+            }
+
             DMapTagged dmap = new();
             Dictionary<string, object> output = dmap.Decode(requestMessage.Body);
 
-            if (!output.TryGetValue("minm", out var minm)) return Task.CompletedTask;
+            if (!output.TryGetValue("minm", out object? minm) || minm is not string { Length: > 0 and <= 1024 } name)
+                return;
             output.TryGetValue("asar", out var asar);
             output.TryGetValue("asal", out var asal);
 
-            _deviceSession?.RemoteSetWorkInfo(new((string)minm, (string?)asar, (string?)asal));
+            _deviceSession?.RemoteSetWorkInfo(new(
+                name,
+                asar is string { Length: <= 1024 } artist ? artist : null,
+                asal is string { Length: <= 1024 } album ? album : null));
         }
-        else if (contentType.Equals("image/jpeg", StringComparison.OrdinalIgnoreCase))
+        else if (contentType.Equals("image/jpeg", StringComparison.OrdinalIgnoreCase) ||
+            contentType.Equals("image/png", StringComparison.OrdinalIgnoreCase))
             _deviceSession?.RemoteSetCover(requestMessage.Body);
-
-        return Task.CompletedTask;
     }
-}
 
-public partial class RtspConnection
-{
-    [GeneratedRegex(@"seq\=([^;]*)")]
-    private static partial Regex GenFindSeqRegex();
+    internal static bool TryParseRtpSequence(string value, out int sequence)
+    {
+        sequence = -1;
+        foreach (string segment in value.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!segment.StartsWith("seq=", StringComparison.OrdinalIgnoreCase))
+                continue;
 
-    private readonly static Regex FindSeqRegex = GenFindSeqRegex();
+            return int.TryParse(
+                    segment.AsSpan(4),
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out sequence) &&
+                sequence is >= 0 and <= ushort.MaxValue;
+        }
+
+        return false;
+    }
+
+    internal static bool TryParseVolume(ReadOnlySpan<char> value, out double volume)
+    {
+        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out volume) &&
+            double.IsFinite(volume) && volume is >= -144 and <= 0)
+            return true;
+
+        volume = 0;
+        return false;
+    }
+
+    internal static bool TryParseProgress(ReadOnlySpan<char> value, out MediaProgressInfo progress)
+    {
+        progress = default;
+        int firstSeparator = value.IndexOf('/');
+        int secondSeparator = firstSeparator < 0 ? -1 : value[(firstSeparator + 1)..].IndexOf('/');
+        if (firstSeparator <= 0 || secondSeparator < 0)
+            return false;
+        secondSeparator += firstSeparator + 1;
+        if (secondSeparator >= value.Length - 1 || value[(secondSeparator + 1)..].Contains('/'))
+            return false;
+
+        if (!long.TryParse(value[..firstSeparator], NumberStyles.None, CultureInfo.InvariantCulture, out long start) ||
+            !long.TryParse(value[(firstSeparator + 1)..secondSeparator], NumberStyles.None, CultureInfo.InvariantCulture, out long current) ||
+            !long.TryParse(value[(secondSeparator + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out long end) ||
+            start < 0 || current < start || end < current)
+            return false;
+
+        double durationSeconds = (end - start) / 44_100d;
+        double positionSeconds = (current - start) / 44_100d;
+        if (durationSeconds > TimeSpan.MaxValue.TotalSeconds)
+            return false;
+
+        progress = new(TimeSpan.FromSeconds(durationSeconds), TimeSpan.FromSeconds(positionSeconds));
+        return true;
+    }
+
+    internal static bool TryParseTeardown(
+        byte[] body,
+        out bool closeAudio,
+        out bool closeMirror,
+        out bool closeSession)
+    {
+        closeAudio = false;
+        closeMirror = false;
+        closeSession = false;
+        if (body.Length == 0)
+        {
+            closeAudio = closeMirror = closeSession = true;
+            return true;
+        }
+        if (body.Length > MaximumSetupBodyBytes)
+            return false;
+
+        try
+        {
+            if (PropertyListParser.Parse(body) is not NSDictionary dictionary)
+                return false;
+            Dictionary<string, NSObject> values = dictionary.ToDictionary();
+            if (!values.TryGetValue("streams", out NSObject? streamsValue))
+            {
+                closeAudio = closeMirror = closeSession = true;
+                return true;
+            }
+            if (streamsValue.ToObject() is not object[] streams)
+                return false;
+            if (streams.Length == 0)
+            {
+                closeAudio = closeMirror = closeSession = true;
+                return true;
+            }
+            if (streams.Length > 2)
+                return false;
+
+            bool parsedAudio = false;
+            bool parsedMirror = false;
+            foreach (object item in streams)
+            {
+                if (item is not Dictionary<string, object> stream ||
+                    !stream.TryGetValue("type", out object? typeValue) ||
+                    !TryGetInt32(typeValue, out int type))
+                    return false;
+
+                if (type == 96 && !parsedAudio)
+                    parsedAudio = true;
+                else if (type == 110 && !parsedMirror)
+                    parsedMirror = true;
+                else
+                    return false;
+            }
+
+            closeAudio = parsedAudio;
+            closeMirror = parsedMirror;
+            return true;
+        }
+        catch
+        {
+            closeAudio = closeMirror = closeSession = false;
+            return false;
+        }
+    }
+
+    private static bool IsAsciiParameterBody(ReadOnlySpan<byte> body)
+    {
+        foreach (byte value in body)
+        {
+            if (value is not (>= 0x20 and <= 0x7e) and not (byte)'\r' and not (byte)'\n' and not (byte)'\t')
+                return false;
+        }
+        return true;
+    }
 }
 
 internal static partial class RtspConnectionLoggers

@@ -209,7 +209,6 @@
                                     <TextBlock x:Name="SessionTitleText" Style="{ThemeResource BodyStrongTextBlockStyle}" Text="Waiting for a device" />
                                     <TextBlock x:Name="SessionDetailText" Foreground="{ThemeResource SecondaryTextBrush}" Style="{ThemeResource CaptionTextBlockStyle}" Text="Keep this app open, then connect from Control Center." />
                                 </StackPanel>
-                                <ProgressRing x:Name="SessionProgress" Grid.Column="3" Width="24" Height="24" IsActive="False" />
                                 <Button x:Name="DisconnectSessionButton" Grid.Column="3" Visibility="Collapsed" Click="DisconnectSessionButton_Click" Content="Disconnect" />
                             </Grid>
                         </Border>

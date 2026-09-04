@@ -2,7 +2,6 @@
 using Makaretu.Dns;
 using Microsoft.Extensions.Hosting;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Net;
 
 namespace AirPlay.Core2.Services;
@@ -13,7 +12,8 @@ public class DacpDiscoveryService(MulticastService mdns, SessionManager sessionM
     private readonly SessionManager _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
     private ServiceDiscovery? _serviceDiscovery;
 
-    private readonly ConcurrentDictionary<string, (DomainName, IPEndPoint)> _dacpServices = [];
+    private readonly ConcurrentDictionary<string, (DomainName, IPEndPoint)> _dacpServices =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public event EventHandler<IPEndPoint>? OnDacpServiceShutdown;
 
@@ -29,7 +29,8 @@ public class DacpDiscoveryService(MulticastService mdns, SessionManager sessionM
 
     private void OnSessionCreated(object? sender, DeviceSession e)
     {
-        if (_dacpServices.TryGetValue(e.DacpId, out var dacpService))
+        if (_dacpServices.TryGetValue(e.DacpId, out var dacpService) &&
+            IsSameHost(e.RemoteAddress, dacpService.Item2.Address))
             e.SetDacpServiceEndPoint(dacpService.Item2);
     }
 
@@ -47,10 +48,17 @@ public class DacpDiscoveryService(MulticastService mdns, SessionManager sessionM
             if (addressRecord == null) return;
 
             string dacpId = sRVRecord.Name.Labels[0].Replace("iTunes_Ctrl_", string.Empty);
+            if (sRVRecord.Port == 0)
+                return;
+
             IPEndPoint iPEndPoint = new(addressRecord.Address, sRVRecord.Port);
 
             _dacpServices.AddOrUpdate(dacpId, (e.ServiceInstanceName, iPEndPoint), 
                 (key, oldValue) => (e.ServiceInstanceName, iPEndPoint));
+
+            if (_sessionManager.TryGetSession(dacpId, out DeviceSession? session) &&
+                IsSameHost(session.RemoteAddress, iPEndPoint.Address))
+                session.SetDacpServiceEndPoint(iPEndPoint);
         }
     }
 
@@ -58,8 +66,17 @@ public class DacpDiscoveryService(MulticastService mdns, SessionManager sessionM
     {
         var dacpId = _dacpServices.FirstOrDefault(kv => kv.Value.Item1 == e.ServiceInstanceName);
 
-        if (_dacpServices.TryRemove(dacpId.Key, out var kvp))
+        if (!string.IsNullOrEmpty(dacpId.Key) && _dacpServices.TryRemove(dacpId.Key, out var kvp))
             OnDacpServiceShutdown?.Invoke(this, kvp.Item2);
+    }
+
+    private static bool IsSameHost(IPAddress left, IPAddress right)
+    {
+        if (left.IsIPv4MappedToIPv6)
+            left = left.MapToIPv4();
+        if (right.IsIPv4MappedToIPv6)
+            right = right.MapToIPv4();
+        return left.Equals(right);
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
