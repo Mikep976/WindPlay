@@ -2,7 +2,7 @@
 
 RELEASE HOLD: Do not use run 14. The remediation and signing gates must be resolved before these instructions authorize a Surface test.
 
-The automated suite validates protocol framing, malformed-input rejection, identity isolation, authentication, H.264 framing, and an ARM64 build. Real AirPlay interoperability must also be checked on the target Surface because sender behavior, Wi-Fi multicast, GPU drivers, and audio clocks are hardware-dependent.
+The automated suite validates protocol framing, malformed-input rejection, Windows identity persistence, authentication and H.264 framing; CI also compiles the Windows UI for x64 validation. The replacement ARM64 build remains gated and has not been produced. Real AirPlay interoperability must also be checked on the target Surface because sender behavior, Wi-Fi multicast, GPU drivers, and audio clocks are hardware-dependent.
 
 ## Test setup
 

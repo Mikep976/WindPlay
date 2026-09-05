@@ -1,7 +1,7 @@
 name: Security regression checks
 on:
   push:
-    branches: [main, 'security/**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: security-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: security-pr-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
