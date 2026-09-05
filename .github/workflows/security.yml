@@ -36,7 +36,7 @@ jobs:
         run: python3 eng/audit_dependencies.py
       - name: Report dependency inventory
         run: python3 eng/dependency_sbom.py
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
           name: security-evidence-only
@@ -83,7 +83,7 @@ jobs:
           }
           if (-not $rejected) { throw 'Unsigned output passed the release gate unexpectedly.' }
           Write-Output 'Unsigned output rejected as required.'
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
           name: windows-security-evidence-only
