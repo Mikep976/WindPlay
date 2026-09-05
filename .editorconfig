@@ -1,0 +1,13 @@
+root = true
+
+[*.cs]
+# Explicit security rules for the inherited protocol code. Legacy MD5/ECB are
+# required by AirPlay Digest/CTR and are not treated as modern cryptographic design.
+dotnet_diagnostic.CA3075.severity = error
+dotnet_diagnostic.CA5369.severity = error
+dotnet_diagnostic.CA5370.severity = error
+dotnet_diagnostic.CA5378.severity = error
+dotnet_diagnostic.CA5394.severity = error
+dotnet_diagnostic.CA5395.severity = error
+dotnet_diagnostic.CA5398.severity = error
+dotnet_diagnostic.CA5400.severity = error

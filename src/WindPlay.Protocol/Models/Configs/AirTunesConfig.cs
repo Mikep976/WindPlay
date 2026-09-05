@@ -6,7 +6,7 @@ public class AirTunesConfig
 
     public bool RequirePassword { get; set; } = true;
 
-    public string Password { get; set; } = "0000";
+    public string Password { get; set; } = AirPlay.Core2.Security.ReceiverPassword.Create();
 
     public bool AllowNonPrivateNetworks { get; set; }
 

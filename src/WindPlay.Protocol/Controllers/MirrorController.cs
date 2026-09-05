@@ -26,9 +26,15 @@ public class MirrorController : IDisposable
         remove => _dataConnection?.DataReceived -= value;
     }
 
-    public MirrorController(string streamConnectionId, AesSecret aesSecret, IPAddress remoteAddress)
+    public event Action<Exception>? ConnectionFaulted
     {
-        _dataConnection = new MirrorDataConnection(streamConnectionId, aesSecret, remoteAddress);
+        add => _dataConnection.ConnectionFaulted += value;
+        remove => _dataConnection.ConnectionFaulted -= value;
+    }
+
+    public MirrorController(string streamConnectionId, AesSecret aesSecret, IPAddress remoteAddress, IPAddress localAddress)
+    {
+        _dataConnection = new MirrorDataConnection(streamConnectionId, aesSecret, remoteAddress, localAddress);
         DataPort = _dataConnection.DataPort;
     }
 

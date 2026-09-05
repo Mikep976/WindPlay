@@ -175,21 +175,22 @@
                             <Border Grid.Column="1" Style="{StaticResource CardStyle}">
                                 <StackPanel Spacing="12">
                                     <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Private connection" />
-                                    <TextBlock Foreground="{ThemeResource SecondaryTextBrush}" Text="Enter this passcode when your Apple device asks. It stays encrypted for your Windows account." TextWrapping="Wrap" />
+                                    <TextBlock Foreground="{ThemeResource SecondaryTextBrush}" Text="Enter all 20 characters when your Apple device asks. This password is stored encrypted for your Windows account." TextWrapping="Wrap" />
                                     <Border Padding="16" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="12">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="12">
                                             <TextBlock
                                                 x:Name="PasscodeText"
                                                 FontFamily="Cascadia Mono"
-                                                FontSize="30"
+                                                FontSize="20"
                                                 FontWeight="SemiBold"
-                                                CharacterSpacing="180"
+                                                CharacterSpacing="30"
+                                                TextWrapping="Wrap"
                                                 Text="••••" />
-                                            <Button Grid.Column="1" Style="{StaticResource TouchButtonStyle}" Click="CopyPasscodeButton_Click">
-                                                <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE8C8;" /><TextBlock Text="Copy" /></StackPanel>
+                                            <Button x:Name="RotatePasswordButton" Style="{StaticResource TouchButtonStyle}" Click="RotatePasswordButton_Click">
+                                                <TextBlock Text="New password" />
                                             </Button>
-                                        </Grid>
+                                            <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource SecondaryTextBrush}" Text="Changing the password disconnects current sessions." TextWrapping="Wrap" />
+                                        </StackPanel>
                                     </Border>
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon Foreground="{ThemeResource SystemFillColorSuccessBrush}" Glyph="&#xE73E;" />
@@ -221,7 +222,7 @@
                         <Border Style="{StaticResource CardStyle}">
                             <StackPanel Spacing="18">
                                 <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Receiver" />
-                                <TextBox x:Name="ReceiverNameBox" Header="Name visible on Apple devices" MaxLength="64" />
+                                <TextBox x:Name="ReceiverNameBox" Header="Name visible on Apple devices" MaxLength="40" />
                                 <ToggleSwitch x:Name="RequirePasscodeToggle" Header="Require passcode" OffContent="Anyone on this LAN can connect" OnContent="Recommended" />
                                 <ToggleSwitch x:Name="StartOnLaunchToggle" Header="Start receiving when WindPlay opens" />
                                 <ToggleSwitch x:Name="FullScreenToggle" Header="Open streams full screen" />
@@ -240,7 +241,7 @@
                             <StackPanel Spacing="16">
                                 <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Safe by default" />
                                 <TextBlock Text="WindPlay talks directly to devices on your LAN. It has no account, cloud relay, analytics SDK, crash uploader, recording, or screenshot history." TextWrapping="Wrap" />
-                                <ToggleSwitch x:Name="PublicNetworksToggle" Header="Allow routed or public IP addresses" OffContent="Private and link-local ranges only" OnContent="Use only on a trusted network" />
+                                <ToggleSwitch x:Name="PublicNetworksToggle" Header="Routed/public access is disabled" IsEnabled="False" OffContent="Selected Ethernet/Wi-Fi subnet only" />
                                 <ToggleSwitch x:Name="DiagnosticsToggle" Header="Write local diagnostic logs" OffContent="No logs are written" OnContent="Rotated locally after 7 days" />
                                 <ToggleSwitch x:Name="PerformanceOverlayToggle" Header="Show frame statistics while streaming" />
                                 <StackPanel Orientation="Horizontal" Spacing="10">

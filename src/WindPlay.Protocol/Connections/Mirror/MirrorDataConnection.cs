@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using AirPlay.Core2.Models.Messages.Mirror;
 using AirPlay.Core2.Utils;
+using AirPlay.Core2.Security;
 
 using AesSecret = (byte[] DecryptedAesKey, byte[] AesIv, byte[] EcdhShared);
 
@@ -11,9 +12,9 @@ namespace AirPlay.Core2.Connections.Mirror;
 
 public sealed class MirrorDataConnection : IDisposable
 {
-    public const int MaximumPayloadBytes = 16 * 1024 * 1024;
+    public const int MaximumPayloadBytes = MirrorLimits.MaximumFrameBytes;
 
-    private readonly TcpListener _tcpListener = new(IPAddress.Any, 0);
+    private readonly TcpListener _tcpListener;
     private readonly AESCTRBufferedCipher _cipher;
     private readonly IPAddress _expectedRemoteAddress;
     private readonly CancellationTokenSource _tokenSource = new();
@@ -23,10 +24,11 @@ public sealed class MirrorDataConnection : IDisposable
     private Task? _worker;
     private bool _disposed;
 
-    public MirrorDataConnection(string streamConnectionId, AesSecret aesSecret, IPAddress expectedRemoteAddress)
+    public MirrorDataConnection(string streamConnectionId, AesSecret aesSecret, IPAddress expectedRemoteAddress, IPAddress localAddress)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(streamConnectionId);
         ArgumentNullException.ThrowIfNull(expectedRemoteAddress);
+        _tcpListener = new(localAddress, 0);
         _expectedRemoteAddress = expectedRemoteAddress.IsIPv4MappedToIPv6
             ? expectedRemoteAddress.MapToIPv4()
             : expectedRemoteAddress;
@@ -77,7 +79,8 @@ public sealed class MirrorDataConnection : IDisposable
     {
         try
         {
-            using TcpClient client = await _tcpListener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+            using TcpClient client = await MirrorLimits.AcceptExpectedAsync(_tcpListener, _expectedRemoteAddress,
+                TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
             _tcpListener.Stop();
             if (client.Client.RemoteEndPoint is not IPEndPoint remoteEndPoint ||
                 !Normalize(remoteEndPoint.Address).Equals(_expectedRemoteAddress))
@@ -88,21 +91,33 @@ public sealed class MirrorDataConnection : IDisposable
 
             await using NetworkStream networkStream = client.GetStream();
             byte[] headerBuffer = GC.AllocateUninitializedArray<byte>(MirroringHeader.Length);
+            var byteBudget = new WorkBudget(32 * 1024 * 1024, 32 * 1024 * 1024, TimeSpan.FromSeconds(1));
+            var frameBudget = new WorkBudget(240, 240, TimeSpan.FromSeconds(1));
+            var configurationBudget = MirrorLimits.CreateConfigurationBudget();
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                await networkStream.ReadExactlyAsync(headerBuffer, cancellationToken).ConfigureAwait(false);
+                await MirrorLimits.ReadExactlyAsync(networkStream, headerBuffer, TimeSpan.FromSeconds(30),
+                    TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
                 MirroringHeader header = new(headerBuffer);
-                if (header.PayloadSize is < 0 or > MaximumPayloadBytes)
-                    throw new InvalidDataException($"Mirroring payload exceeds {MaximumPayloadBytes} bytes.");
+                MirrorLimits.ValidatePayload(header.PayloadType, header.PayloadSize);
+                if (!frameBudget.TryCharge(_expectedRemoteAddress) || !byteBudget.TryCharge(_expectedRemoteAddress, header.PayloadSize))
+                    throw new InvalidDataException("Mirroring traffic exceeds its resource budget.");
+                if (header.PayloadType == 1)
+                {
+                    MirrorLimits.ValidateDimensions(header.WidthSource, header.HeightSource);
+                    if (!configurationBudget.TryCharge(_expectedRemoteAddress))
+                        throw new InvalidDataException("Video reconfiguration exceeds its resource budget.");
+                }
 
                 byte[] payloadBuffer = ArrayPool<byte>.Shared.Rent(Math.Max(1, header.PayloadSize));
                 bool bufferOwnedByFrame = false;
                 try
                 {
                     if (header.PayloadSize > 0)
-                        await networkStream.ReadExactlyAsync(
+                        await MirrorLimits.ReadExactlyAsync(networkStream,
                             payloadBuffer.AsMemory(0, header.PayloadSize),
+                            TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(2),
                             cancellationToken).ConfigureAwait(false);
 
                     if (header.PayloadType == 0)
@@ -174,7 +189,7 @@ public sealed class MirrorDataConnection : IDisposable
         }
         catch (EndOfStreamException)
         {
-            // The sender closed the stream normally.
+            ConnectionFaulted?.Invoke(new IOException("The sender closed the mirroring stream."));
         }
         catch (IOException) when (cancellationToken.IsCancellationRequested)
         {

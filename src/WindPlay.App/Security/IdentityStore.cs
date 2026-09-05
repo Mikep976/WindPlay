@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Globalization;
+using System.Runtime.Versioning;
 using AirPlay.Core2.Security;
 using WindPlay.App.Configuration;
 
@@ -9,6 +9,7 @@ namespace WindPlay.App.Security;
 
 public sealed record ReceiverSecrets(ReceiverIdentity Identity, string Passcode);
 
+[SupportedOSPlatform("windows")]
 public static class IdentityStore
 {
     private static readonly byte[] AdditionalEntropy = SHA256.HashData(
@@ -48,7 +49,7 @@ public static class IdentityStore
         return CreateAndSave();
     }
 
-    private static ReceiverSecrets Load()
+    private static ReceiverSecrets Load(bool rotatePassword = false)
     {
         var file = new FileInfo(AppPaths.IdentityFile);
         if (file.Length is <= 0 or > 32 * 1024)
@@ -63,11 +64,26 @@ public static class IdentityStore
         byte[] protectedSeed = Convert.FromBase64String(document.ProtectedSigningSeed);
         byte[] protectedPasscode = Convert.FromBase64String(document.ProtectedPasscode);
         byte[] seed = ProtectedData.Unprotect(protectedSeed, AdditionalEntropy, DataProtectionScope.CurrentUser);
-        byte[] passcodeBytes = ProtectedData.Unprotect(protectedPasscode, AdditionalEntropy, DataProtectionScope.CurrentUser);
+        byte[] passcodeBytes = [];
         try
         {
+            passcodeBytes = ProtectedData.Unprotect(protectedPasscode, AdditionalEntropy, DataProtectionScope.CurrentUser);
             string passcode = Encoding.UTF8.GetString(passcodeBytes);
-            if (passcode.Length != 4 || !passcode.All(char.IsAsciiDigit))
+            if (rotatePassword || (passcode.Length == 4 && passcode.All(char.IsAsciiDigit)))
+            {
+                passcode = ReceiverPassword.Create();
+                byte[] replacement = Encoding.UTF8.GetBytes(passcode);
+                try
+                {
+                    document = document with { ProtectedPasscode = Convert.ToBase64String(
+                        ProtectedData.Protect(replacement, AdditionalEntropy, DataProtectionScope.CurrentUser)) };
+                    string temporaryFile = AppPaths.IdentityFile + ".new";
+                    File.WriteAllText(temporaryFile, JsonSerializer.Serialize(document, JsonOptions));
+                    File.Move(temporaryFile, AppPaths.IdentityFile, overwrite: true);
+                }
+                finally { CryptographicOperations.ZeroMemory(replacement); }
+            }
+            if (!ReceiverPassword.IsStrong(passcode))
                 throw new InvalidDataException("Receiver passcode is invalid.");
 
             ReceiverIdentity identity = new(
@@ -89,7 +105,7 @@ public static class IdentityStore
     {
         byte[] seed = RandomNumberGenerator.GetBytes(ReceiverIdentity.SigningSeedLength);
         byte[] deviceIdentifier = RandomNumberGenerator.GetBytes(ReceiverIdentity.DeviceIdentifierLength);
-        string passcode = RandomNumberGenerator.GetInt32(10_000).ToString("D4", CultureInfo.InvariantCulture);
+        string passcode = ReceiverPassword.Create();
         byte[] passcodeBytes = Encoding.UTF8.GetBytes(passcode);
         Guid pairingIdentifier = Guid.NewGuid();
         Guid groupIdentifier = Guid.NewGuid();
@@ -126,6 +142,13 @@ public static class IdentityStore
             CryptographicOperations.ZeroMemory(deviceIdentifier);
             CryptographicOperations.ZeroMemory(passcodeBytes);
         }
+    }
+
+    public static string RotatePassword()
+    {
+        ReceiverSecrets replacement = Load(rotatePassword: true);
+        replacement.Identity.Dispose();
+        return replacement.Passcode;
     }
 
     private sealed record IdentityDocument(

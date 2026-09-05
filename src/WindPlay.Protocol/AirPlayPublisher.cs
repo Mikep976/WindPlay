@@ -1,6 +1,5 @@
 ﻿using AirPlay.Core2.Models.Configs;
 using AirPlay.Core2.Security;
-using Makaretu.Dns;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -8,60 +7,8 @@ using System.Text;
 
 namespace AirPlay.Core2;
 
-public partial class AirPlayPublisher(MulticastService multicastService, ILogger<AirPlayPublisher> logger,
-    IOptions<AirTunesConfig> airTunesConfig, ReceiverIdentity identity) : IHostedService
+public partial class AirPlayPublisher
 {
-    private readonly ServiceDiscovery _serviceDiscovery = new(multicastService);
-
-    Task IHostedService.StartAsync(CancellationToken cancellationToken)
-    {
-        #region AirTunes Service
-
-        ServiceProfile airTunesProfile = new
-        (
-            $"{identity.DeviceIdCompact}@{airTunesConfig.Value.ServiceName}",
-            AirTunesType,
-            airTunesConfig.Value.Port
-        );
-
-        foreach ((string key, string value) in GetAirTunesTxtProperties(airTunesConfig.Value, identity))
-            airTunesProfile.AddProperty(key, value);
-
-        _serviceDiscovery.Advertise(airTunesProfile);
-        logger.AirTunesPublished(airTunesConfig.Value.Port);
-
-        #endregion
-
-        #region AirPlay Service
-
-        ServiceProfile airPlayProfile = new
-        (
-            airTunesConfig.Value.ServiceName,
-            AirPlayType,
-            airTunesConfig.Value.Port
-        );
-
-        foreach ((string key, string value) in GetAirPlayTxtProperties(airTunesConfig.Value, identity))
-            airPlayProfile.AddProperty(key, value);
-
-        _serviceDiscovery.Advertise(airPlayProfile);
-        logger.AirPlayPublished(airTunesConfig.Value.Port);
-
-        #endregion
-
-        multicastService.Start();
-
-        return Task.CompletedTask;
-    }
-
-    Task IHostedService.StopAsync(CancellationToken cancellationToken)
-    {
-        _serviceDiscovery.Dispose();
-        multicastService.Stop();
-
-        return Task.CompletedTask;
-    }
-
     internal static IReadOnlyList<KeyValuePair<string, string>> GetAirTunesTxtProperties(
         AirTunesConfig config,
         ReceiverIdentity identity)

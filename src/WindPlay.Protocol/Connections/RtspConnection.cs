@@ -5,7 +5,6 @@ using AirPlay.Core2.Models.Messages.Rtsp;
 using AirPlay.Core2.Security;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Rebex.Security.Cryptography;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
@@ -17,8 +16,6 @@ namespace AirPlay.Core2.Connections;
 
 public partial class RtspConnection : IDisposable
 {
-    private static readonly TimeSpan HandshakeReadTimeout = TimeSpan.FromSeconds(90);
-
     private readonly ILoggerFactory? _loggerFactory;
     private readonly ILogger<RtspConnection>? _logger;
     private readonly AirTunesConfig _airTunesConfig;
@@ -28,10 +25,8 @@ public partial class RtspConnection : IDisposable
     private readonly TcpClient _client;
     private readonly IPEndPoint _endPoint;
 
-    private readonly Ed25519 _ed25519;
     private readonly byte[] _publicKey;
 
-    private Curve25519? _curve25519;
     private byte[]? _ecdhOurs;
     private byte[]? _ecdhTheirs;
     private byte[]? _edTheirs;
@@ -66,7 +61,6 @@ public partial class RtspConnection : IDisposable
         _loggerFactory = loggerFactory;
         _logger = loggerFactory?.CreateLogger<RtspConnection>();
 
-        _ed25519 = identity.CreateSigningKey();
         _publicKey = identity.PublicKey.ToArray();
         _identity = identity;
     }
@@ -113,7 +107,8 @@ public partial class RtspConnection : IDisposable
         ConnectionClosed += (_, _) => _logger?.EndMessageLoopWorker(_endPoint);
 
         using var networkStream = _client.GetStream();
-        using var reader = new RtspMessageReader();
+        using var reader = new RtspMessageReader(admit: bytes =>
+            TransportLimits.Requests.TryCharge(_endPoint.Address) && TransportLimits.Bytes.TryCharge(_endPoint.Address, bytes));
 
         if (!_client.Connected) throw new InvalidOperationException("TcpClient is not connected");
         if (!networkStream.CanRead) throw new InvalidOperationException("Can't read the NetworkStream");
@@ -123,16 +118,7 @@ public partial class RtspConnection : IDisposable
             RtspRequestMessage? requestMessage;
             try
             {
-                if (_deviceSession is null)
-                {
-                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    timeout.CancelAfter(HandshakeReadTimeout);
-                    requestMessage = await reader.ReadAsync(networkStream, timeout.Token).ConfigureAwait(false);
-                }
-                else
-                {
-                    requestMessage = await reader.ReadAsync(networkStream, cancellationToken).ConfigureAwait(false);
-                }
+                requestMessage = await reader.ReadAsync(networkStream, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -157,7 +143,9 @@ public partial class RtspConnection : IDisposable
                 break;
 
             RtspResponseMessage responseMessage = await HandleRequestMessageAsync(requestMessage, cancellationToken).ConfigureAwait(false);
-            await HandleResponseMessageAsync(requestMessage, responseMessage, networkStream, cancellationToken).ConfigureAwait(false);
+            using var writeDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            writeDeadline.CancelAfter(TimeSpan.FromSeconds(10));
+            await HandleResponseMessageAsync(requestMessage, responseMessage, networkStream, writeDeadline.Token).ConfigureAwait(false);
 
             if (_disconnectRequested || (_deviceSession?.RequestedDisconnect ?? false))
                 break;
@@ -347,6 +335,10 @@ public partial class RtspConnection : IDisposable
             CryptographicOperations.ZeroMemory(_keyMsg);
         _ecdhShared = null;
         _keyMsg = null;
+        if (_ecdhOurs is not null) CryptographicOperations.ZeroMemory(_ecdhOurs);
+        if (_ecdhTheirs is not null) CryptographicOperations.ZeroMemory(_ecdhTheirs);
+        if (_edTheirs is not null) CryptographicOperations.ZeroMemory(_edTheirs);
+        _ecdhOurs = _ecdhTheirs = _edTheirs = null;
     }
 
     public void Dispose() => _client.Dispose();

@@ -12,15 +12,16 @@ namespace AirPlay.Core2.Services;
 
 public class AirTunesService(SessionManager sessionManager,
     ILoggerFactory loggerFactory, IOptions<AirTunesConfig> options,
-    ReceiverIdentity identity, AuthenticationRateLimiter authenticationRateLimiter) : BackgroundService
+    ReceiverIdentity identity, AuthenticationRateLimiter authenticationRateLimiter, LanScope scope) : BackgroundService
 {
     private readonly ILogger<AirTunesService> _logger = loggerFactory.CreateLogger<AirTunesService>();
 
-    private readonly TcpListener _tcpListener = new(IPAddress.Any, options.Value.Port);
+    private readonly TcpListener _tcpListener = new(scope.Address, options.Value.Port);
     private readonly ConcurrentDictionary<IPEndPoint, RtspConnection> _rtspConnections = [];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (options.Value.AllowNonPrivateNetworks) throw new InvalidOperationException("Routed/public access is disabled.");
         _tcpListener.Start();
 
         while (!stoppingToken.IsCancellationRequested)
@@ -34,8 +35,9 @@ public class AirTunesService(SessionManager sessionManager,
                 continue;
             }
 
-            if ((!options.Value.AllowNonPrivateNetworks && !NetworkAccessPolicy.IsPrivateOrLocal(remoteEndPoint.Address)) ||
-                _rtspConnections.Count >= Math.Clamp(options.Value.MaximumConcurrentConnections, 1, 64))
+            if (!scope.Contains(remoteEndPoint.Address) ||
+                _rtspConnections.Keys.Count(p => p.Address.Equals(remoteEndPoint.Address)) >= 2 ||
+                _rtspConnections.Count >= Math.Clamp(options.Value.MaximumConcurrentConnections, 1, 16))
             {
                 _logger.RtspClientRejected(remoteEndPoint);
                 client.Dispose();

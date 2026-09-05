@@ -1,0 +1,22 @@
+{
+  "sourceReview": "38e7c47e1773081d699a0c67bed5ff9884c53f96",
+  "blockers": {
+    "securityRegressionSuite": true,
+    "independentRemediationReview": false,
+    "windowsUiAndIdentityTests": true,
+    "parserCoverageGuidedFuzzing": false,
+    "publisherSigningAndTimestamping": false,
+    "artifactAttestationAndSbom": false,
+    "hardwareInteroperability": false
+  },
+  "evidence": {
+    "testedSourceCommit": "bc5b39c4eff4249e7a2d6ad2d3ee8019776f33e5",
+    "ciRun": "https://github.com/Mikep976/WindPlay/actions/runs/33972034817",
+    "linuxTests": 146,
+    "windowsTests": 150,
+    "windowsUiCompile": "x64, zero warnings/errors; not an ARM64 build",
+    "dependencyAudits": "application and test graphs passed",
+    "nativeAnalysis": "MSVC /analyze x64 compile-only passed"
+  },
+  "note": "Fail closed. Do not mark a gate passed without evidence. Hardware interoperability is a post-build acceptance task; the strict hold requires an explicit owner decision before an unsigned experimental package. This file is not a security approval by itself."
+}

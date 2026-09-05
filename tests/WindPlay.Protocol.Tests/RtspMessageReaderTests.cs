@@ -9,7 +9,8 @@ public sealed class RtspMessageReaderTests
     [Fact]
     public async Task FragmentedRequestPreservesHeadersAndBinaryBody()
     {
-        byte[] body = [0x00, 0x0d, 0x0a, 0xff, 0x42];
+        byte[] body = new byte[68];
+        body[0] = 0x00; body[1] = 0x0d; body[2] = 0x0a; body[3] = 0xff; body[4] = 0x42;
         byte[] request = BuildRequest(
             "POST /pair-verify RTSP/1.0\r\nCSeq: 9\r\nContent-Type: application/octet-stream\r\n",
             body);

@@ -44,13 +44,14 @@ public static class SettingsStore
     private static ReceiverSettings Validate(ReceiverSettings settings)
     {
         string name = settings.ReceiverName.Trim();
-        if (name.Length is 0 or > 64 || name.Any(char.IsControl))
+        if (name.Length == 0 || System.Text.Encoding.UTF8.GetByteCount(name) > 40 || name.Any(char.IsControl))
             name = "WindPlay";
 
         return settings with
         {
             Version = 1,
             ReceiverName = name,
+            AllowNonPrivateNetworks = false,
             MaximumConnections = Math.Clamp(settings.MaximumConnections, 1, 16),
         };
     }

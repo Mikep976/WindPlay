@@ -8,7 +8,8 @@
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <!-- This fork retains protocol names and binary-layout structs from its upstream
          implementation. App and test projects keep the full analyzer ruleset. -->
-    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-none</AnalysisLevel>
     <NoWarn>$(NoWarn);CS0675</NoWarn>
   </PropertyGroup>
 
@@ -49,12 +50,9 @@
 
   <ItemGroup>
     <PackageReference Include="BouncyCastle.Cryptography" />
-    <PackageReference Include="Makaretu.Dns.Multicast.New" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="plist-cil" />
-    <PackageReference Include="Rebex.Elliptic.Curve25519" />
-    <PackageReference Include="Rebex.Elliptic.Ed25519" />
   </ItemGroup>
 
 </Project>

@@ -1,5 +1,5 @@
 using System.Security.Cryptography;
-using Rebex.Security.Cryptography;
+using Org.BouncyCastle.Math.EC.Rfc8032;
 
 namespace AirPlay.Core2.Security;
 
@@ -44,8 +44,8 @@ public sealed class ReceiverIdentity : IDisposable
         GroupIdentifier = groupIdentifier;
         DisplayIdentifier = displayIdentifier;
 
-        Ed25519 key = CreateSigningKey();
-        PublicKey = key.GetPublicKey();
+        PublicKey = new byte[32];
+        Ed25519.GeneratePublicKey(_signingSeed, 0, PublicKey, 0);
         PublicKeyHex = Convert.ToHexString(PublicKey).ToLowerInvariant();
     }
 
@@ -81,22 +81,13 @@ public sealed class ReceiverIdentity : IDisposable
         }
     }
 
-    internal Ed25519 CreateSigningKey()
+    internal byte[] SignMessage(byte[] message)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        byte[] seedCopy = _signingSeed.ToArray();
-        try
-        {
-            var key = (Ed25519.Create("ed25519-sha512") as Ed25519)
-                ?? throw new CryptographicException("The Ed25519 implementation is unavailable.");
-            key.FromSeed(seedCopy);
-            return key;
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(seedCopy);
-        }
+        byte[] signature = new byte[64];
+        Ed25519.Sign(_signingSeed, 0, message, 0, message.Length, signature, 0);
+        return signature;
     }
 
     public void Dispose()
