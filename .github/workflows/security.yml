@@ -69,6 +69,20 @@ jobs:
         run: python eng/audit_dependencies.py src/WindPlay.App/WindPlay.App.csproj tests/WindPlay.Protocol.Tests/WindPlay.Protocol.Tests.csproj
       - name: MSVC native static analysis (x64 compile only)
         run: ./eng/analyze-native-codecs.ps1
+      - name: Verify unsigned builds cannot pass publisher gate
+        shell: pwsh
+        run: |
+          $binary = Get-ChildItem src/WindPlay.App/bin -Recurse -Filter WindPlay.exe | Select-Object -First 1
+          if (-not $binary) { throw 'No x64 validation binary found.' }
+          $rejected = $false
+          try {
+            ./eng/verify-release-signatures.ps1 -PublishDirectory $binary.DirectoryName -ExpectedCertificateSha256 ('0' * 64)
+          } catch {
+            if ($_.Exception.Message -notmatch 'no valid timestamped publisher signature') { throw }
+            $rejected = $true
+          }
+          if (-not $rejected) { throw 'Unsigned output passed the release gate unexpectedly.' }
+          Write-Output 'Unsigned output rejected as required.'
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
         if: always()
         with:

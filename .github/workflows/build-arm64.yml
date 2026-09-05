@@ -51,6 +51,14 @@ jobs:
         shell: pwsh
         run: ./eng/test-published-codecs.ps1 -PublishDirectory artifacts/WindPlay
 
+      # Signing provisioning is deliberately not guessed or silently bypassed.
+      # A release owner must configure signing before this workflow can publish.
+      - name: Verify timestamped publisher signatures before packaging
+        shell: pwsh
+        env:
+          WINDPLAY_EXPECTED_SIGNER_SHA256: ${{ vars.WINDPLAY_EXPECTED_SIGNER_SHA256 }}
+        run: ./eng/verify-release-signatures.ps1 -PublishDirectory artifacts/WindPlay -ExpectedCertificateSha256 $env:WINDPLAY_EXPECTED_SIGNER_SHA256
+
       - name: Add quick-start note
         shell: pwsh
         run: Copy-Item docs/QUICKSTART.txt artifacts/WindPlay/START-HERE.txt
