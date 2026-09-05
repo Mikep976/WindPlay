@@ -58,6 +58,7 @@ public class DeviceSession(
     public ushort TimingPort => _timingConnection.LocalPort;
 
     public IPAddress RemoteAddress => remoteAddress;
+    public required IPAddress LocalAddress { get; init; }
 
     public event EventHandler<MediaProgressInfo>? MediaProgressInfoReceived;
     public event EventHandler<MediaWorkInfo>? MediaWorkInfoReceived;
@@ -100,7 +101,8 @@ public class DeviceSession(
 
     public void CreateMirrorController(string streamConnectionId)
     {
-        MirrorController = new MirrorController(streamConnectionId, (_decryptedAesKey, aesIv, ecdhShared), remoteAddress);
+        MirrorController = new MirrorController(streamConnectionId, (_decryptedAesKey, aesIv, ecdhShared), remoteAddress, LocalAddress);
+        MirrorController.ConnectionFaulted += _ => Disconnect();
         MirrorControllerCreated?.Invoke(this, EventArgs.Empty);
         logger?.ControllerCreated("Mirror", DeviceDisplayName);
     }

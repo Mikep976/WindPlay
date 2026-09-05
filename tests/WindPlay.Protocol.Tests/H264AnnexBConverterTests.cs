@@ -36,18 +36,13 @@ public sealed class H264AnnexBConverterTests
     [Fact]
     public void AvcConfigurationProducesAnnexBParameterSets()
     {
-        byte[] configuration =
-        [
-            1, 0x64, 0, 0x1f, 0xff, 0xe1,
-            0, 3, 0x67, 0x64, 0,
-            1,
-            0, 2, 0x68, 0xee,
-        ];
+        byte[] sps = SpsSecurityTests.CreateSps(120, 68);
+        byte[] configuration = [1, 66, 0, 31, 0xff, 0xe1, 0, (byte)sps.Length, .. sps, 1, 0, 2, 0x68, 0xee];
 
         bool converted = H264AnnexBConverter.TryCreateParameterSets(configuration, out byte[] parameterSets);
 
         Assert.True(converted);
-        Assert.Equal([0, 0, 0, 1, 0x67, 0x64, 0, 0, 0, 0, 1, 0x68, 0xee], parameterSets);
+        Assert.Equal([0, 0, 0, 1, .. sps, 0, 0, 0, 1, 0x68, 0xee], parameterSets);
     }
 
     [Fact]

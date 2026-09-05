@@ -58,7 +58,7 @@ public sealed partial class MainWindow : Window
         StartOnLaunchToggle.IsOn = settings.StartReceiverOnLaunch;
         FullScreenToggle.IsOn = settings.FullScreenOnConnect;
         KeepAwakeToggle.IsOn = settings.KeepDisplayAwake;
-        PublicNetworksToggle.IsOn = settings.AllowNonPrivateNetworks;
+        PublicNetworksToggle.IsOn = false;
         DiagnosticsToggle.IsOn = settings.DiagnosticsEnabled;
         PerformanceOverlayToggle.IsOn = settings.ShowPerformanceOverlay;
         MaximumConnectionsBox.Value = settings.MaximumConnections;
@@ -164,7 +164,11 @@ public sealed partial class MainWindow : Window
 
     private void CopyNameButton_Click(object sender, RoutedEventArgs e) => CopyText(_receiver.Settings.ReceiverName);
 
-    private void CopyPasscodeButton_Click(object sender, RoutedEventArgs e) => CopyText(_receiver.Passcode);
+    private async void CopyPasscodeButton_Click(object sender, RoutedEventArgs e)
+    {
+        try { await _receiver.RotatePasswordAsync(); PasscodeText.Text = _receiver.Passcode; }
+        catch (Exception exception) { ErrorBar.Title = "Password was not changed"; ErrorBar.Message = exception.Message; ErrorBar.IsOpen = true; }
+    }
 
     private static void CopyText(string value)
     {
@@ -185,7 +189,7 @@ public sealed partial class MainWindow : Window
                 StartReceiverOnLaunch = StartOnLaunchToggle.IsOn,
                 FullScreenOnConnect = FullScreenToggle.IsOn,
                 KeepDisplayAwake = KeepAwakeToggle.IsOn,
-                AllowNonPrivateNetworks = PublicNetworksToggle.IsOn,
+                AllowNonPrivateNetworks = false,
                 DiagnosticsEnabled = DiagnosticsToggle.IsOn,
                 ShowPerformanceOverlay = PerformanceOverlayToggle.IsOn,
                 MaximumConnections = double.IsNaN(MaximumConnectionsBox.Value)

@@ -1,5 +1,7 @@
 # Hardware acceptance test
 
+RELEASE HOLD: Do not use run 14. The remediation and signing gates must be resolved before these instructions authorize a Surface test.
+
 The automated suite validates protocol framing, malformed-input rejection, identity isolation, authentication, H.264 framing, and an ARM64 build. Real AirPlay interoperability must also be checked on the target Surface because sender behavior, Wi-Fi multicast, GPU drivers, and audio clocks are hardware-dependent.
 
 ## Test setup
@@ -15,7 +17,7 @@ Record the Surface model, Windows build, Mac model, macOS version, iPhone model/
 
 1. Start WindPlay and confirm **Ready on your local network**.
 2. On macOS, open Control Center → Screen Mirroring → WindPlay.
-3. Enter the four-digit WindPlay passcode if prompted.
+3. Enter the 20-character WindPlay receiver password if prompted. Rejecting this password length is an interoperability failure, not permission to silently downgrade to four digits.
 4. Open System Settings → Displays, select WindPlay, and choose **Use as Separate Display**.
 5. Move a window and the pointer across the display boundary.
 6. Play a 60 fps non-DRM video and a voice track for five minutes.

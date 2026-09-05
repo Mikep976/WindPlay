@@ -1,0 +1,13 @@
+{
+  "sourceReview": "38e7c47e1773081d699a0c67bed5ff9884c53f96",
+  "blockers": {
+    "securityRegressionSuite": false,
+    "independentRemediationReview": false,
+    "windowsUiAndIdentityTests": false,
+    "parserCoverageGuidedFuzzing": false,
+    "publisherSigningAndTimestamping": false,
+    "artifactAttestationAndSbom": false,
+    "hardwareInteroperability": false
+  },
+  "note": "Fail closed. Do not mark a gate passed without recorded evidence and owner-approved signing configuration. This file is not a security approval by itself."
+}

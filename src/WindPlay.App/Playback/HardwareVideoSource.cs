@@ -23,6 +23,7 @@ public sealed class HardwareVideoSource : IDisposable
 
     public HardwareVideoSource(int width, int height)
     {
+        AirPlay.Core2.Security.MirrorLimits.ValidateDimensions(width, height);
         if (width is <= 0 or > 16_384)
             throw new ArgumentOutOfRangeException(nameof(width));
         if (height is <= 0 or > 16_384)

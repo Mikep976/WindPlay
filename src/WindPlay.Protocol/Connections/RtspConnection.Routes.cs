@@ -1,11 +1,14 @@
 ﻿using AirPlay.Core2.Models;
+using AirPlay.Core2.Security;
 using AirPlay.Core2.Models.Messages;
 using AirPlay.Core2.Models.Messages.Audio;
 using AirPlay.Core2.Models.Messages.Rtsp;
 using AirPlay.Core2.Utils;
 using Claunia.PropertyList;
 using Microsoft.Extensions.Logging;
-using Rebex.Security.Cryptography;
+using Org.BouncyCastle.Math.EC.Rfc7748;
+using Org.BouncyCastle.Math.EC.Rfc8032;
+using System.Security.Cryptography;
 using System.Globalization;
 using System.Text;
 using static AirPlay.Core2.Models.Messages.Rtsp.RtspResponseMessage;
@@ -44,14 +47,14 @@ public partial class RtspConnection
             Dictionary<string, object> qualifiedInfo = [];
             if (requestMessage.Body.Length > 0)
             {
-                if (PropertyListParser.Parse(requestMessage.Body) is not NSDictionary qualifierDictionary ||
+                if (BoundedPlist.Parse(requestMessage.Body) is not NSDictionary qualifierDictionary ||
                     !qualifierDictionary.ToDictionary().TryGetValue("qualifier", out NSObject? qualifierValue) ||
                     qualifierValue.ToObject() is not object[] { Length: > 0 and <= 2 } qualifiers)
                     throw new InvalidDataException("The AirPlay info qualifier list is invalid.");
 
                 foreach (object qualifier in qualifiers)
                 {
-                    if (qualifier is not string name)
+                    if (qualifier is not string name || name is not ("txtAirPlay" or "txtRAOP"))
                         throw new InvalidDataException("An AirPlay info qualifier is invalid.");
                     AddTxtRecord(qualifiedInfo, name);
                 }
@@ -229,10 +232,7 @@ public partial class RtspConnection
             Array.Copy(_ecdhTheirs, 0, messageBuffer, 0, 32);
             Array.Copy(_ecdhOurs, 0, messageBuffer, 32, 32);
 
-            var ed25519 = (Ed25519.Create("ed25519-sha512") as Ed25519)!;
-            ed25519.FromPublicKey(_edTheirs);
-
-            _pairVerified = ed25519.VerifyMessage(messageBuffer, signatureBuffer);
+            _pairVerified = Ed25519.Verify(signatureBuffer, 0, _edTheirs, 0, messageBuffer, 0, messageBuffer.Length);
 
             if (_pairVerified)
                 _logger?.PairVerified(_ActiveRemote ?? "unknown");
@@ -244,18 +244,28 @@ public partial class RtspConnection
         }
         else if (flag == 1)
         {
+            if (_deviceSession is not null) throw new InvalidDataException("Pair verification cannot restart during an active session.");
+            ClearEphemeralSecrets();
+            _pairVerified = false;
             _ecdhTheirs = reader.ReadBytes(32);
             _edTheirs = reader.ReadBytes(32);
 
-            _curve25519 = Curve25519.Create("curve25519-sha256");
-            _ecdhOurs = _curve25519.GetPublicKey();
-            _ecdhShared = _curve25519.GetSharedSecret(_ecdhTheirs);
+            byte[] privateKey = RandomNumberGenerator.GetBytes(32);
+            _ecdhOurs = new byte[32];
+            _ecdhShared = new byte[32];
+            try
+            {
+                X25519.ScalarMultBase(privateKey, 0, _ecdhOurs, 0);
+                if (!X25519.CalculateAgreement(privateKey, 0, _ecdhTheirs, 0, _ecdhShared, 0))
+                    throw new InvalidDataException("Invalid X25519 peer key.");
+            }
+            finally { CryptographicOperations.ZeroMemory(privateKey); }
 
             byte[] dataToSign = new byte[64];
             Array.Copy(_ecdhOurs, 0, dataToSign, 0, 32);
             Array.Copy(_ecdhTheirs, 0, dataToSign, 32, 32);
 
-            byte[] signature = _ed25519.SignMessage(dataToSign);
+            byte[] signature = _identity.SignMessage(dataToSign);
 
             using AESCTRBufferedCipher cipher = AESCTRBufferedCipher.CreateDefault(_ecdhShared);
 
@@ -321,6 +331,7 @@ public partial class RtspConnection
             byte[] output = new byte[32];
 
             Array.Copy(requestMessage.Body, 0, keyMsg, 0, 164);
+            if (_keyMsg is not null) CryptographicOperations.ZeroMemory(_keyMsg);
             _keyMsg = keyMsg;
             _logger?.FairPlaySetUp(_ActiveRemote ?? "unknown");
 
@@ -347,7 +358,7 @@ public partial class RtspConnection
         }
 
         if (requestMessage.Body.Length is 0 or > MaximumSetupBodyBytes ||
-            PropertyListParser.Parse(requestMessage.Body) is not NSDictionary nsDict)
+            BoundedPlist.Parse(requestMessage.Body) is not NSDictionary nsDict)
         {
             responseMessage.Status = StatusCode.BADREQUEST;
             return;
@@ -460,6 +471,7 @@ public partial class RtspConnection
                 DeviceDisplayName = name,
                 DeviceModel = model,
                 DacpId = _DACPID ?? string.Empty,
+                LocalAddress = ((System.Net.IPEndPoint)_client.Client.LocalEndPoint!).Address,
                 ActiveRemote = _ActiveRemote ?? string.Empty,
                 IsMirrorSession = isScreenMirroringSessionValue?.ToObject() is bool isScreenMirroringSession && isScreenMirroringSession
             };
@@ -862,7 +874,7 @@ public partial class RtspConnection
 
         try
         {
-            if (PropertyListParser.Parse(body) is not NSDictionary dictionary)
+            if (BoundedPlist.Parse(body) is not NSDictionary dictionary)
                 return false;
             Dictionary<string, NSObject> values = dictionary.ToDictionary();
             if (!values.TryGetValue("streams", out NSObject? streamsValue))

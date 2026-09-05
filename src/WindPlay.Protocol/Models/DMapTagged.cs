@@ -1,5 +1,6 @@
 ﻿using AirPlay.Core2.Extensions;
 using System.Text;
+using System.Buffers.Binary;
 
 namespace AirPlay.Core2.Models;
 
@@ -1014,45 +1015,41 @@ public class DMapTagged
 
     public Dictionary<string, object> Decode(byte[] buffer, bool useName = false)
     {
+        ArgumentNullException.ThrowIfNull(buffer);
+        if (buffer.Length is < 8 or > 64 * 1024 || !buffer.AsSpan(0, 4).SequenceEqual("mlit"u8) ||
+            BinaryPrimitives.ReadUInt32BigEndian(buffer.AsSpan(4)) != buffer.Length - 8)
+            throw new InvalidDataException("Invalid DMap container length.");
         Dictionary<string, object> output = [];
-
-        using var memoryStream = new MemoryStream(buffer);
-        using var reader = new BinaryReader(memoryStream);
-
-        uint itemLength = 0;
-
-        for (int i = 8; i < buffer.Length; i += (int)(8 + itemLength))
+        HashSet<string> seen = [];
+        int cursor = 8;
+        while (cursor < buffer.Length)
         {
-            memoryStream.Position = i;
-            string outputKey = Encoding.ASCII.GetString(reader.ReadBytes(4));
-
-            itemLength = reader.ReadUInt32BE();
-            ContentTypeItem contentType = _contentTypes[outputKey];
-
-            object? parsedData = null;
-
-            if (itemLength == 0) continue;
-
-            var data = reader.ReadBytes((int)itemLength);
-
-            var dataMem = new MemoryStream(data);
-            using (var dataReader = new BinaryReader(dataMem))
+            if (buffer.Length - cursor < 8 || seen.Count >= 128)
+                throw new InvalidDataException("Invalid DMap item count/header.");
+            string tag = Encoding.ASCII.GetString(buffer.AsSpan(cursor, 4));
+            uint length = BinaryPrimitives.ReadUInt32BigEndian(buffer.AsSpan(cursor + 4, 4));
+            cursor += 8;
+            if (length > (uint)(buffer.Length - cursor) || !seen.Add(tag))
+                throw new InvalidDataException("Invalid DMap item length or duplicate tag.");
+            ReadOnlySpan<byte> data = buffer.AsSpan(cursor, (int)length);
+            cursor += (int)length;
+            if (!_contentTypes.TryGetValue(tag, out ContentTypeItem? type)) continue;
+            int width = type.Type switch { "byte" => 1, "short" => 2, "date" or "int" => 4, "long" => 8, _ => 0 };
+            if ((width != 0 && data.Length != width) || (width == 0 && data.Length > 4096))
+                throw new InvalidDataException("Invalid DMap value width.");
+            if (type.Type == "list") throw new InvalidDataException("Nested DMap containers are not accepted.");
+            object value = type.Type switch
             {
-                parsedData = contentType.Type switch
-                {
-                    "byte" => dataReader.ReadByte(),
-                    "date" => dataReader.ReadInt32BE(),
-                    "short" => dataReader.ReadUInt16BE(),
-                    "int" => dataReader.ReadUInt32BE(),
-                    "long" => dataReader.ReadUInt64BE(),
-                    _ => Encoding.UTF8.GetString(data),
-                };
-            }
-
-            if (useName) outputKey = contentType.Name;
-            if (parsedData != null) output.Add(outputKey, parsedData);
+                "byte" => data[0],
+                "short" => BinaryPrimitives.ReadUInt16BigEndian(data),
+                "date" => BinaryPrimitives.ReadInt32BigEndian(data),
+                "int" => BinaryPrimitives.ReadUInt32BigEndian(data),
+                "long" => BinaryPrimitives.ReadUInt64BigEndian(data),
+                _ => new UTF8Encoding(false, true).GetString(data),
+            };
+            if (!output.TryAdd(useName ? type.Name : tag, value))
+                throw new InvalidDataException("Duplicate DMap output field.");
         }
-
         return output;
     }
 }

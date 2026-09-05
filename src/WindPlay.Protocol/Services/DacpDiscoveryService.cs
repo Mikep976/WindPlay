@@ -1,96 +1,70 @@
-﻿using AirPlay.Core2.Models;
-using Makaretu.Dns;
+using AirPlay.Core2.Discovery;
+using AirPlay.Core2.Models;
 using Microsoft.Extensions.Hosting;
-using System.Collections.Concurrent;
 using System.Net;
 
 namespace AirPlay.Core2.Services;
 
-public class DacpDiscoveryService(MulticastService mdns, SessionManager sessionManager) : IHostedService
+public sealed class DacpDiscoveryService(BoundedMdnsService mdns, SessionManager sessions) : BackgroundService
 {
-    private readonly MulticastService _mdns = mdns ?? throw new ArgumentNullException(nameof(mdns));
-    private readonly SessionManager _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
-    private ServiceDiscovery? _serviceDiscovery;
+    private readonly object _gate = new();
+    private readonly Dictionary<DeviceSession, DateTimeOffset> _expiry = [];
+    internal int TrackedCount { get { lock (_gate) return _expiry.Count; } }
 
-    private readonly ConcurrentDictionary<string, (DomainName, IPEndPoint)> _dacpServices =
-        new(StringComparer.OrdinalIgnoreCase);
-
-    public event EventHandler<IPEndPoint>? OnDacpServiceShutdown;
-
-    public Task StartAsync(CancellationToken cancellationToken)
+    internal void Expire(DateTimeOffset now)
     {
-        _serviceDiscovery = new ServiceDiscovery(_mdns);
-        _serviceDiscovery.ServiceInstanceDiscovered += OnServiceInstanceDiscovered;
-        _serviceDiscovery.ServiceInstanceShutdown += OnServiceInstanceShutdown;
-
-        _sessionManager.SessionCreated += OnSessionCreated;
-        return Task.CompletedTask;
+        lock (_gate)
+            foreach (var entry in _expiry.ToArray())
+                if (entry.Value <= now)
+                { _expiry.Remove(entry.Key); entry.Key.SetDacpServiceEndPoint(null); }
     }
 
-    private void OnSessionCreated(object? sender, DeviceSession e)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (_dacpServices.TryGetValue(e.DacpId, out var dacpService) &&
-            IsSameHost(e.RemoteAddress, dacpService.Item2.Address))
-            e.SetDacpServiceEndPoint(dacpService.Item2);
-    }
-
-    private void OnServiceInstanceDiscovered(object? sender, ServiceInstanceDiscoveryEventArgs e)
-    {
-        if (e.Message.Answers.Any(a => a is SRVRecord && a.CanonicalName.StartsWith($"iTunes_Ctrl_", StringComparison.OrdinalIgnoreCase)))
+        mdns.PacketReceived += OnPacket;
+        sessions.SessionClosed += OnSessionClosed;
+        try
         {
-            SRVRecord sRVRecord = e.Message.Answers.OfType<SRVRecord>()
-                .First(a => a is not null);
-
-            AddressRecord? addressRecord = e.Message.AdditionalRecords.OfType<AddressRecord>()
-                .Concat(e.Message.Answers.OfType<AddressRecord>())
-                .FirstOrDefault(a => a.Name == sRVRecord.Target && a.Type == DnsType.A);
-
-            if (addressRecord == null) return;
-
-            string dacpId = sRVRecord.Name.Labels[0].Replace("iTunes_Ctrl_", string.Empty);
-            if (sRVRecord.Port == 0)
-                return;
-
-            IPEndPoint iPEndPoint = new(addressRecord.Address, sRVRecord.Port);
-
-            _dacpServices.AddOrUpdate(dacpId, (e.ServiceInstanceName, iPEndPoint), 
-                (key, oldValue) => (e.ServiceInstanceName, iPEndPoint));
-
-            if (_sessionManager.TryGetSession(dacpId, out DeviceSession? session) &&
-                IsSameHost(session.RemoteAddress, iPEndPoint.Address))
-                session.SetDacpServiceEndPoint(iPEndPoint);
+            using PeriodicTimer timer = new(TimeSpan.FromSeconds(1));
+            while (await timer.WaitForNextTickAsync(stoppingToken))
+                Expire(DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            mdns.PacketReceived -= OnPacket;
+            sessions.SessionClosed -= OnSessionClosed;
+            lock (_gate)
+            {
+                foreach (var session in _expiry.Keys) session.SetDacpServiceEndPoint(null);
+                _expiry.Clear();
+            }
         }
     }
 
-    private void OnServiceInstanceShutdown(object? sender, ServiceInstanceShutdownEventArgs e)
-    {
-        var dacpId = _dacpServices.FirstOrDefault(kv => kv.Value.Item1 == e.ServiceInstanceName);
+    private void OnSessionClosed(object? sender, DeviceSession session)
+    { lock (_gate) { _expiry.Remove(session); session.SetDacpServiceEndPoint(null); } }
 
-        if (!string.IsNullOrEmpty(dacpId.Key) && _dacpServices.TryRemove(dacpId.Key, out var kvp))
-            OnDacpServiceShutdown?.Invoke(this, kvp.Item2);
-    }
-
-    private static bool IsSameHost(IPAddress left, IPAddress right)
+    internal void OnPacket(DnsPacket packet, IPAddress source)
     {
-        if (left.IsIPv4MappedToIPv6)
-            left = left.MapToIPv4();
-        if (right.IsIPv4MappedToIPv6)
-            right = right.MapToIPv4();
-        return left.Equals(right);
-    }
-
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        _sessionManager.SessionCreated -= OnSessionCreated;
-        if (_serviceDiscovery is not null)
+        foreach (var record in packet.Records)
         {
-            _serviceDiscovery.ServiceInstanceDiscovered -= OnServiceInstanceDiscovered;
-            _serviceDiscovery.ServiceInstanceShutdown -= OnServiceInstanceShutdown;
+            const string prefix = "iTunes_Ctrl_", suffix = "._dacp._tcp.local";
+            if (record.Type != 33 || record.Port == 0 || !record.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ||
+                !record.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) continue;
+            string id = record.Name[prefix.Length..^suffix.Length];
+            if (id.Length is 0 or > 64 || !id.All(char.IsAsciiLetterOrDigit) ||
+                !sessions.TryGetSession(id, out var session) || !session.RemoteAddress.Equals(source)) continue;
+            if (!packet.Records.Any(a => a.Type == 1 && a.Name.Equals(record.Target, StringComparison.OrdinalIgnoreCase) &&
+                new IPAddress(a.Data).Equals(source))) continue;
+            lock (_gate)
+            {
+                if (record.Ttl == 0) { _expiry.Remove(session); session.SetDacpServiceEndPoint(null); }
+                else if (_expiry.ContainsKey(session) || _expiry.Count < 16)
+                {
+                    _expiry[session] = DateTimeOffset.UtcNow.AddSeconds(Math.Min(record.Ttl, 120));
+                    session.SetDacpServiceEndPoint(new(source, record.Port));
+                }
+            }
         }
-        _serviceDiscovery?.Dispose();
-        _serviceDiscovery = null;
-        _dacpServices.Clear();
-
-        return Task.CompletedTask;
     }
 }

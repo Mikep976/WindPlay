@@ -1,16 +1,16 @@
 # WindPlay
 
-WindPlay turns a Windows 11 PC into a private, low-latency AirPlay receiver. It is designed first for native Windows on Arm devices such as the Surface Pro and supports macOS extended-desktop mirroring, ordinary mirroring, and AirPlay audio without a cloud service or telemetry.
+WindPlay is an experimental Windows 11 AirPlay receiver targeting native Windows on Arm devices such as the Surface Pro. macOS extended desktop, mirroring and audio are implementation goals awaiting hardware acceptance, not verified release claims.
 
 > [!IMPORTANT]
 > WindPlay is an independent, unofficial implementation. It is not affiliated with or endorsed by Apple Inc. Protected FairPlay/DRM video is intentionally out of scope.
 
-The first test release is under active development. See [docs/TESTING.md](docs/TESTING.md) for the hardware acceptance checklist.
+**Do not install the run-14 artifact.** Its security review identified release-blocking parsers. Remediation is in progress and ARM64 packaging is held by explicit release gates. See [docs/SECURITY-REMEDIATION.md](docs/SECURITY-REMEDIATION.md) for findings, tests and unresolved requirements.
 
 ## Privacy defaults
 
 - Local network only; no cloud relay or account.
-- A connection PIN is required by default.
+- A random 100-bit receiver password is required by default; legacy four-digit PINs are migrated.
 - No recording, screenshots, analytics, or crash uploads.
 - Diagnostic logging is off by default, stays local, and rotates after seven days. When enabled, logs may include the connecting device name and local-network address.
 
@@ -24,7 +24,7 @@ dotnet restore WindPlay.slnx
 dotnet build WindPlay.slnx -c Release -p:Platform=ARM64
 ```
 
-CI creates an unpackaged, self-contained `win-arm64` ZIP for private testing.
+Push CI runs security tests only. The manual ARM64 workflow fails before building while any gate in `eng/release-gates.json` is unresolved. Do not bypass those gates to obtain a test ZIP.
 
 ## Acknowledgements
 

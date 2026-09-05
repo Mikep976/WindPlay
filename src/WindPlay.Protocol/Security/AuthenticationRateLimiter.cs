@@ -13,7 +13,10 @@ public sealed class AuthenticationRateLimiter
     internal static readonly TimeSpan DefaultFailureWindow = TimeSpan.FromMinutes(5);
     internal static readonly TimeSpan DefaultLockoutDuration = TimeSpan.FromMinutes(5);
 
-    private const int MaximumTrackedAddresses = 1_024;
+    private const int MaximumTrackedAddresses = 128;
+    private readonly object _globalGate = new();
+    private DateTimeOffset _globalWindow, _globalBlockedUntil;
+    private int _globalFailures;
     private readonly ConcurrentDictionary<IPAddress, AttemptState> _attempts = [];
     private readonly Func<DateTimeOffset> _getUtcNow;
     private readonly int _maximumFailures;
@@ -50,6 +53,8 @@ public sealed class AuthenticationRateLimiter
 
     public bool CanAttempt(IPAddress address)
     {
+        lock (_globalGate)
+            if (_globalBlockedUntil > _getUtcNow()) return false;
         ArgumentNullException.ThrowIfNull(address);
         address = Normalize(address);
         if (!_attempts.TryGetValue(address, out AttemptState? state))
@@ -72,9 +77,22 @@ public sealed class AuthenticationRateLimiter
     /// <returns><see langword="true"/> when another attempt is currently permitted.</returns>
     public bool RecordFailure(IPAddress address)
     {
+        lock (_globalGate) return RecordFailureCore(address);
+    }
+
+    private bool RecordFailureCore(IPAddress address)
+    {
         ArgumentNullException.ThrowIfNull(address);
         address = Normalize(address);
         DateTimeOffset now = _getUtcNow();
+        if (_globalBlockedUntil > now) return false;
+        if (now - _globalWindow >= _failureWindow) { _globalWindow = now; _globalFailures = 0; }
+        if (++_globalFailures >= 20) { _globalBlockedUntil = now + _lockoutDuration; return false; }
+        if (!_attempts.ContainsKey(address) && _attempts.Count >= MaximumTrackedAddresses)
+        {
+            PruneExpired(now);
+            if (_attempts.Count >= MaximumTrackedAddresses) return false;
+        }
         AttemptState state = _attempts.GetOrAdd(address, _ => new AttemptState(now));
 
         bool canRetry;

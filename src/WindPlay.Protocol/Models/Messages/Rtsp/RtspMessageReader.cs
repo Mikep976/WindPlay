@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Globalization;
 using System.Text;
+using AirPlay.Core2.Security;
 
 namespace AirPlay.Core2.Models.Messages.Rtsp;
 
@@ -10,8 +11,8 @@ namespace AirPlay.Core2.Models.Messages.Rtsp;
 /// </summary>
 public sealed class RtspMessageReader : IDisposable
 {
-    public const int DefaultMaximumHeaderBytes = 32 * 1024;
-    public const int DefaultMaximumBodyBytes = 8 * 1024 * 1024;
+    public const int DefaultMaximumHeaderBytes = 8 * 1024;
+    public const int DefaultMaximumBodyBytes = 512 * 1024;
 
     private readonly int _maximumHeaderBytes;
     private readonly int _maximumBodyBytes;
@@ -19,76 +20,84 @@ public sealed class RtspMessageReader : IDisposable
     private int _start;
     private int _end;
     private bool _disposed;
+    private readonly Func<int, bool>? _admit;
+    private readonly TimeSpan _headerTimeout, _bodyTimeout, _progressTimeout;
 
     public RtspMessageReader(
         int maximumHeaderBytes = DefaultMaximumHeaderBytes,
-        int maximumBodyBytes = DefaultMaximumBodyBytes)
+        int maximumBodyBytes = DefaultMaximumBodyBytes,
+        Func<int, bool>? admit = null,
+        TimeSpan? headerTimeout = null, TimeSpan? bodyTimeout = null, TimeSpan? progressTimeout = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumHeaderBytes, 256);
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumBodyBytes, 0);
 
         _maximumHeaderBytes = maximumHeaderBytes;
         _maximumBodyBytes = maximumBodyBytes;
-        _buffer = ArrayPool<byte>.Shared.Rent(Math.Min(16 * 1024, maximumHeaderBytes));
+        _buffer = ArrayPool<byte>.Shared.Rent(maximumHeaderBytes);
+        _admit = admit;
+        _headerTimeout = headerTimeout ?? TimeSpan.FromSeconds(60);
+        _bodyTimeout = bodyTimeout ?? TimeSpan.FromSeconds(15);
+        _progressTimeout = progressTimeout ?? TimeSpan.FromSeconds(5);
     }
 
     public async ValueTask<RtspRequestMessage?> ReadAsync(Stream stream, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(stream);
-
+        using var headerDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        headerDeadline.CancelAfter(_headerTimeout);
         int headerEnd;
         while ((headerEnd = FindHeaderTerminator(_buffer.AsSpan(_start, _end - _start))) < 0)
         {
             if (_end - _start >= _maximumHeaderBytes)
-                throw new RtspProtocolException($"RTSP headers exceed {_maximumHeaderBytes.ToString(CultureInfo.InvariantCulture)} bytes.");
-
-            CompactOrGrow(_maximumHeaderBytes);
-            int read = await stream.ReadAsync(_buffer.AsMemory(_end, _buffer.Length - _end), cancellationToken).ConfigureAwait(false);
+                throw new RtspProtocolException("RTSP headers exceed their limit.");
+            if (_start > 0)
+            {
+                _buffer.AsSpan(_start, _end - _start).CopyTo(_buffer);
+                _end -= _start; _start = 0;
+            }
+            int read = await ReadWithProgressAsync(stream,
+                _buffer.AsMemory(_end, _maximumHeaderBytes - _end),
+                _end == _start ? _headerTimeout : _progressTimeout, headerDeadline.Token);
             if (read == 0)
             {
-                if (_end == _start)
-                    return null;
-
+                if (_end == _start) return null;
                 throw new RtspProtocolException("The peer closed the stream during an RTSP header.");
             }
-
             _end += read;
         }
-
         headerEnd += _start;
         int headerLength = headerEnd - _start;
         var (protocol, requestType, path, headers, contentLength) = ParseHeader(_buffer.AsSpan(_start, headerLength));
+        if (headerLength + 4 > _maximumHeaderBytes || contentLength > _maximumBodyBytes)
+            throw new RtspProtocolException("RTSP message exceeds configured limits.");
+        TransportLimits.ValidateBody(protocol, requestType, path, headers, contentLength);
+        if (_admit is not null && !_admit(checked(headerLength + 4 + contentLength)))
+            throw new RtspProtocolException("RTSP peer exceeded its request/byte budget.");
 
-        if (contentLength > _maximumBodyBytes)
-            throw new RtspProtocolException($"RTSP body exceeds {_maximumBodyBytes.ToString(CultureInfo.InvariantCulture)} bytes.");
-
-        int messageLength = checked(headerLength + 4 + contentLength);
-        while (_end - _start < messageLength)
+        // Allocate once, only after route admission. The header buffer never grows to body size.
+        byte[] body = contentLength == 0 ? [] : new byte[contentLength];
+        int buffered = Math.Min(contentLength, _end - headerEnd - 4);
+        _buffer.AsSpan(headerEnd + 4, buffered).CopyTo(body);
+        _start = headerEnd + 4 + buffered;
+        if (_start == _end) _start = _end = 0;
+        using var bodyDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        bodyDeadline.CancelAfter(_bodyTimeout);
+        for (int offset = buffered; offset < contentLength;)
         {
-            CompactOrGrow(messageLength);
-            int read = await stream.ReadAsync(_buffer.AsMemory(_end, _buffer.Length - _end), cancellationToken).ConfigureAwait(false);
-            if (read == 0)
-                throw new RtspProtocolException("The peer closed the stream during an RTSP body.");
-            _end += read;
+            int read = await ReadWithProgressAsync(stream, body.AsMemory(offset), _progressTimeout, bodyDeadline.Token);
+            if (read == 0) throw new RtspProtocolException("The peer closed the stream during an RTSP body.");
+            offset += read;
         }
+        return new RtspRequestMessage { Protocol = protocol, Type = requestType, Path = path, Headers = headers, Body = body };
+    }
 
-        byte[] body = contentLength == 0
-            ? []
-            : _buffer.AsSpan(headerEnd + 4, contentLength).ToArray();
-
-        _start += messageLength;
-        if (_start == _end)
-            _start = _end = 0;
-
-        return new RtspRequestMessage
-        {
-            Protocol = protocol,
-            Type = requestType,
-            Path = path,
-            Headers = headers,
-            Body = body,
-        };
+    private static async ValueTask<int> ReadWithProgressAsync(Stream stream, Memory<byte> buffer, TimeSpan timeout, CancellationToken token)
+    {
+        using var progress = CancellationTokenSource.CreateLinkedTokenSource(token);
+        progress.CancelAfter(timeout);
+        return await stream.ReadAsync(buffer, progress.Token).ConfigureAwait(false);
     }
 
     public void Dispose()
@@ -179,33 +188,6 @@ public sealed class RtspMessageReader : IDisposable
             throw new RtspProtocolException("Invalid RTSP CSeq.");
 
         return (protocol, type, requestLine[1], headers, contentLength);
-    }
-
-    private void CompactOrGrow(int requiredCapacity)
-    {
-        int used = _end - _start;
-        if (_start > 0 && (_buffer.Length - used >= 4096 || _buffer.Length >= requiredCapacity))
-        {
-            _buffer.AsSpan(_start, used).CopyTo(_buffer);
-            _start = 0;
-            _end = used;
-            return;
-        }
-
-        if (_buffer.Length >= requiredCapacity && _end < _buffer.Length)
-            return;
-
-        int maximum = checked(_maximumHeaderBytes + _maximumBodyBytes + 4);
-        int nextLength = Math.Min(Math.Max(Math.Max(_buffer.Length * 2, used + 4096), requiredCapacity), maximum);
-        if (nextLength < requiredCapacity)
-            throw new RtspProtocolException("RTSP message exceeds configured limits.");
-
-        byte[] replacement = ArrayPool<byte>.Shared.Rent(nextLength);
-        _buffer.AsSpan(_start, used).CopyTo(replacement);
-        ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
-        _buffer = replacement;
-        _start = 0;
-        _end = used;
     }
 
     private static bool ContainsControlCharacter(string value)

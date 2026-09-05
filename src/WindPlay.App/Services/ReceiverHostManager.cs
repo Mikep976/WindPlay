@@ -51,7 +51,15 @@ public sealed class ReceiverHostManager : IAsyncDisposable
 
     public ReceiverIdentity Identity { get; }
 
-    public string Passcode { get; }
+    public string Passcode { get; private set; }
+
+    public async Task RotatePasswordAsync()
+    {
+        bool restart = State == ReceiverState.Ready;
+        await StopAsync().ConfigureAwait(false);
+        Passcode = IdentityStore.RotatePassword();
+        if (restart) await StartAsync().ConfigureAwait(false);
+    }
 
     public ReceiverState State { get; private set; } = ReceiverState.Stopped;
 

@@ -1,16 +1,18 @@
 using System.Buffers.Binary;
+using AirPlay.Core2.Security;
 
 namespace AirPlay.Core2.Models.Messages.Mirror;
 
 public static class H264AnnexBConverter
 {
-    private const int MaximumCodecConfigurationBytes = 100 * 1024;
+    private const int MaximumCodecConfigurationBytes = 64 * 1024;
     private static ReadOnlySpan<byte> StartCode => [0, 0, 0, 1];
 
     /// <summary>Converts four-byte big-endian NAL lengths to Annex-B start codes in place.</summary>
     public static bool TryConvertAccessUnit(Span<byte> accessUnit, out int frameType)
     {
         frameType = 0;
+        if (accessUnit.Length > MirrorLimits.MaximumFrameBytes) return false;
         int offset = 0;
         int firstType = 0;
         bool containsIdr = false;
@@ -32,6 +34,9 @@ public static class H264AnnexBConverter
                 return false;
 
             int nalType = accessUnit[nalOffset] & 0x1f;
+            if (nalType is not (1 or 5 or 6 or 7 or 8 or 9 or 12)) return false;
+            if (!HasValidEscaping(accessUnit.Slice(nalOffset, nalLength))) return false;
+            if (nalType == 7 && !H264SpsLimits.IsSafe(accessUnit.Slice(nalOffset, nalLength))) return false;
             if (firstType == 0)
                 firstType = nalType;
             containsIdr |= nalType == 5;
@@ -51,7 +56,7 @@ public static class H264AnnexBConverter
     public static bool TryCreateParameterSets(ReadOnlySpan<byte> configuration, out byte[] parameterSets)
     {
         parameterSets = [];
-        if (configuration.Length < 7 || configuration[0] != 1 || (configuration[4] & 0x03) != 3)
+        if (configuration.Length is < 7 or > MaximumCodecConfigurationBytes || configuration[0] != 1 || (configuration[4] & 0x03) != 3)
             return false;
 
         int offset = 6;
@@ -60,7 +65,7 @@ public static class H264AnnexBConverter
 
         int sequenceParameterSetCount = configuration[5] & 0x1f;
         if (sequenceParameterSetCount == 0 ||
-            !TryReadUnits(configuration, sequenceParameterSetCount, ref offset, units, ref totalLength))
+            !TryReadUnits(configuration, sequenceParameterSetCount, 7, ref offset, units, ref totalLength))
             return false;
 
         if (offset >= configuration.Length)
@@ -68,7 +73,7 @@ public static class H264AnnexBConverter
 
         int pictureParameterSetCount = configuration[offset++];
         if (pictureParameterSetCount == 0 ||
-            !TryReadUnits(configuration, pictureParameterSetCount, ref offset, units, ref totalLength))
+            !TryReadUnits(configuration, pictureParameterSetCount, 8, ref offset, units, ref totalLength))
             return false;
 
         if (totalLength > MaximumCodecConfigurationBytes)
@@ -90,10 +95,12 @@ public static class H264AnnexBConverter
     private static bool TryReadUnits(
         ReadOnlySpan<byte> configuration,
         int count,
+        int expectedType,
         ref int offset,
         List<(int Offset, int Length)> units,
         ref int totalLength)
     {
+        if (count > 16) return false;
         for (int index = 0; index < count; index++)
         {
             if (configuration.Length - offset < sizeof(ushort))
@@ -102,6 +109,10 @@ public static class H264AnnexBConverter
             int length = BinaryPrimitives.ReadUInt16BigEndian(configuration[offset..]);
             offset += sizeof(ushort);
             if (length == 0 || length > configuration.Length - offset)
+                return false;
+            if ((configuration[offset] & 0x9f) != expectedType) return false;
+            if (!HasValidEscaping(configuration.Slice(offset, length))) return false;
+            if ((configuration[offset] & 0x1f) == 7 && !H264SpsLimits.IsSafe(configuration.Slice(offset, length)))
                 return false;
 
             totalLength = checked(totalLength + StartCode.Length + length);
@@ -112,6 +123,29 @@ public static class H264AnnexBConverter
             offset += length;
         }
 
+        return true;
+    }
+
+    // Annex-B conversion must not expose a second, unvalidated NAL hidden inside
+    // a length-prefixed unit. Check the complete EBSP, including PPS and slices.
+    private static bool HasValidEscaping(ReadOnlySpan<byte> nal)
+    {
+        int zeros = 0;
+        for (int i = 1; i < nal.Length; i++)
+        {
+            byte value = nal[i];
+            if (zeros >= 2)
+            {
+                if (value < 3) return false;
+                if (value == 3)
+                {
+                    if (i + 1 == nal.Length || nal[i + 1] > 3) return false;
+                    zeros = 0;
+                    continue;
+                }
+            }
+            zeros = value == 0 ? zeros + 1 : 0;
+        }
         return true;
     }
 }

@@ -1,18 +1,20 @@
 WINDPLAY — WINDOWS ARM64 QUICK START
 ====================================
 
+RELEASE HOLD: Do not install run 14 or bypass eng/release-gates.json.
+The steps below apply only after a replacement signed build is approved.
+
 1. Extract the entire WindPlay-win-arm64.zip file to a local folder.
    Do not run WindPlay.exe from inside the ZIP.
 
-2. Open WindPlay.exe. This private test build is unsigned, so Windows SmartScreen
-   may show a warning. Choose More info > Run anyway only if you downloaded the
-   artifact from Mikep976/WindPlay.
+2. Verify the published SHA-256 and publisher signature before opening WindPlay.exe.
+   Do not bypass SmartScreen or disable Defender to run an unapproved build.
 
 3. When Windows Firewall asks, allow WindPlay on Private networks only. Leave
    Public networks unchecked.
 
 4. Leave “Accept AirPlay connections” on. WindPlay shows the receiver name and
-   four-digit passcode to use on your Apple device.
+   receiver password to use on your Apple device.
 
 5. On the Mac, open Control Center > Screen Mirroring and choose WindPlay. Enter
    the passcode if requested. Then open System Settings > Displays, select the

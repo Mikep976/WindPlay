@@ -8,16 +8,6 @@
         "resolved": "2.7.0",
         "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
       },
-      "Makaretu.Dns.Multicast.New": {
-        "type": "Direct",
-        "requested": "[0.38.0, )",
-        "resolved": "0.38.0",
-        "contentHash": "03h8IaKplBxXP842jEnH+VT3JbpSjJ7jjfbaIXDVkd5kWlk+jt59T1P9I1vrnx0jDZzXK1VqzFoD+UZnJesKYg==",
-        "dependencies": {
-          "Common.Logging": "3.4.1",
-          "Makaretu.Dns.New": "3.1.2"
-        }
-      },
       "Microsoft.Extensions.Hosting": {
         "type": "Direct",
         "requested": "[10.0.11, )",
@@ -62,36 +52,6 @@
         "requested": "[2.3.1, )",
         "resolved": "2.3.1",
         "contentHash": "Gz6DAc89kQII9BILp1+cFHFx6ftk/s1EWP68vW+YqOT4FRKo/UWzTq6D9PEvudov2xcXHtkTA5JkIL+UK477vg=="
-      },
-      "Rebex.Elliptic.Curve25519": {
-        "type": "Direct",
-        "requested": "[1.2.2, )",
-        "resolved": "1.2.2",
-        "contentHash": "DDKAk1zP6++FQm0iZFLUnuF+sQxHL1ZrOdKA9LR/lPmJLAIQ/g/kvRTkV3+9lx/JYkvbKoG1GftdodOgA1z/Cg=="
-      },
-      "Rebex.Elliptic.Ed25519": {
-        "type": "Direct",
-        "requested": "[1.2.2, )",
-        "resolved": "1.2.2",
-        "contentHash": "19Fopd+m6rkrotbA9XY1bJ7BOL1N5cipC6K2RLshY1y6jEGC+5cCl2OgRGDhEda3CQ2vbNQUZORlqUkMTErblw=="
-      },
-      "Common.Logging": {
-        "type": "Transitive",
-        "resolved": "3.4.1",
-        "contentHash": "5eZ/vgEOqzLg4PypZqnJ+wMhhgHyckicbZY4iDxqQ4FtOz0CpdYZ0xQ78aszMzeAJZiLLb5VdR9tPfunVQLz6g==",
-        "dependencies": {
-          "Common.Logging.Core": "3.4.1"
-        }
-      },
-      "Common.Logging.Core": {
-        "type": "Transitive",
-        "resolved": "3.4.1",
-        "contentHash": "wLHldZHvxsSD6Ahonfj00/SkfHfKqO+YT6jsUwVm8Rch1REL9IArHAcSLXxYxYfu5/4ydGtmXvOtaH3AkVPu0A=="
-      },
-      "Makaretu.Dns.New": {
-        "type": "Transitive",
-        "resolved": "3.1.2",
-        "contentHash": "lfIb0DccotDa52dVdim3KROZaxCqI1lkYdlTdxUxWaP2kkerQJm91udzQ9bGMjB+mL3V/OPpUwx3pRrsoKT47g=="
       },
       "Microsoft.Extensions.Configuration": {
         "type": "Transitive",

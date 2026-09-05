@@ -6,6 +6,16 @@ namespace WindPlay.Protocol.Tests;
 
 public sealed class AuthenticationRateLimiterTests
 {
+    [Fact]
+    public void DistributedFailuresTriggerGlobalLockout()
+    {
+        var limiter = new AuthenticationRateLimiter();
+        for (int i = 1; i <= 20; i++) limiter.RecordFailure(System.Net.IPAddress.Parse($"192.168.1.{i}"));
+        Assert.False(limiter.CanAttempt(System.Net.IPAddress.Parse("192.168.1.100")));
+        limiter.RecordSuccess(System.Net.IPAddress.Parse("192.168.1.1"));
+        Assert.False(limiter.CanAttempt(System.Net.IPAddress.Parse("192.168.1.100")));
+    }
+
     private static readonly IPAddress Sender = IPAddress.Parse("192.168.10.25");
 
     [Fact]
