@@ -92,6 +92,7 @@ public sealed class HostileParserTests
     [Fact]
     public void DmapNumericWidthAndStringLengthAreBounded()
     {
+        Assert.Throws<InvalidDataException>(() => new DMapTagged().Decode(Dmap("minm", 1, [0x8a])));
         Assert.Throws<InvalidDataException>(() => new DMapTagged().Decode(Dmap("astm", 1, [0])));
         Assert.Throws<InvalidDataException>(() => new DMapTagged().Decode(Dmap("minm", 4097, new byte[4097])));
         Assert.Throws<InvalidDataException>(() => new DMapTagged().Decode(new byte[9]));

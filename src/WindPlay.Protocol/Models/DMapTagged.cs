@@ -1038,6 +1038,8 @@ public class DMapTagged
             if ((width != 0 && data.Length != width) || (width == 0 && data.Length > 4096))
                 throw new InvalidDataException("Invalid DMap value width.");
             if (type.Type == "list") throw new InvalidDataException("Nested DMap containers are not accepted.");
+            if (width == 0 && !System.Text.Unicode.Utf8.IsValid(data))
+                throw new InvalidDataException("Invalid DMap UTF-8 value.");
             object value = type.Type switch
             {
                 "byte" => data[0],
@@ -1045,7 +1047,7 @@ public class DMapTagged
                 "date" => BinaryPrimitives.ReadInt32BigEndian(data),
                 "int" => BinaryPrimitives.ReadUInt32BigEndian(data),
                 "long" => BinaryPrimitives.ReadUInt64BigEndian(data),
-                _ => new UTF8Encoding(false, true).GetString(data),
+                _ => Encoding.UTF8.GetString(data),
             };
             if (!output.TryAdd(useName ? type.Name : tag, value))
                 throw new InvalidDataException("Duplicate DMap output field.");

@@ -93,6 +93,7 @@ public sealed class MirrorDataConnection : IDisposable
             byte[] headerBuffer = GC.AllocateUninitializedArray<byte>(MirroringHeader.Length);
             var byteBudget = new WorkBudget(32 * 1024 * 1024, 32 * 1024 * 1024, TimeSpan.FromSeconds(1));
             var frameBudget = new WorkBudget(240, 240, TimeSpan.FromSeconds(1));
+            var configurationBudget = MirrorLimits.CreateConfigurationBudget();
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -102,7 +103,12 @@ public sealed class MirrorDataConnection : IDisposable
                 MirrorLimits.ValidatePayload(header.PayloadType, header.PayloadSize);
                 if (!frameBudget.TryCharge(_expectedRemoteAddress) || !byteBudget.TryCharge(_expectedRemoteAddress, header.PayloadSize))
                     throw new InvalidDataException("Mirroring traffic exceeds its resource budget.");
-                if (header.PayloadType == 1) MirrorLimits.ValidateDimensions(header.WidthSource, header.HeightSource);
+                if (header.PayloadType == 1)
+                {
+                    MirrorLimits.ValidateDimensions(header.WidthSource, header.HeightSource);
+                    if (!configurationBudget.TryCharge(_expectedRemoteAddress))
+                        throw new InvalidDataException("Video reconfiguration exceeds its resource budget.");
+                }
 
                 byte[] payloadBuffer = ArrayPool<byte>.Shared.Rent(Math.Max(1, header.PayloadSize));
                 bool bufferOwnedByFrame = false;

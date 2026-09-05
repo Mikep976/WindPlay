@@ -9,6 +9,8 @@ public static class MirrorLimits
     public const int MaximumConfigBytes = 64 * 1024;
     public const int MaximumPixels = 3840 * 2160;
 
+    internal static WorkBudget CreateConfigurationBudget() => new(4, 4, TimeSpan.FromSeconds(10));
+
     public static void ValidateDimensions(int width, int height)
     {
         if (width <= 0 || height <= 0 || width > 4096 || height > 4096 || (long)width * height > MaximumPixels)

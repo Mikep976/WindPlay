@@ -138,6 +138,14 @@ public sealed class TransportSecurityTests
     public void MirrorSurfacePixelBudget(int width, int height)
         => Assert.Throws<InvalidDataException>(() => MirrorLimits.ValidateDimensions(width, height));
 
+    [Fact]
+    public void DecoderReconfigurationHasItsOwnLowRateBudget()
+    {
+        var budget = MirrorLimits.CreateConfigurationBudget();
+        for (int i = 0; i < 4; i++) Assert.True(budget.TryCharge(IPAddress.Loopback));
+        Assert.False(budget.TryCharge(IPAddress.Loopback));
+    }
+
     private sealed class HeaderThenStallStream(byte[] header, bool failOnBodyRead = false) : Stream
     {
         public int ReadCalls { get; private set; }
