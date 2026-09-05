@@ -61,9 +61,15 @@ jobs:
         run: dotnet test tests/WindPlay.Protocol.Tests/WindPlay.Protocol.Tests.csproj -c Release --no-restore --logger 'trx;LogFileName=windows-security.trx'
       - name: Compile Windows UI for x64 validation only
         run: dotnet build src/WindPlay.App/WindPlay.App.csproj -c Release -p:Platform=x64 -p:PlatformTarget=x64 -p:RuntimeIdentifier=win-x64 -p:RestoreLockedMode=false
+      - name: Audit application and test dependency graphs
+        run: python eng/audit_dependencies.py src/WindPlay.App/WindPlay.App.csproj tests/WindPlay.Protocol.Tests/WindPlay.Protocol.Tests.csproj
+      - name: MSVC native static analysis (x64 compile only)
+        run: ./eng/analyze-native-codecs.ps1
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
         if: always()
         with:
           name: windows-security-evidence-only
-          path: tests/WindPlay.Protocol.Tests/TestResults/*.trx
+          path: |
+            tests/WindPlay.Protocol.Tests/TestResults/*.trx
+            artifacts/security/*.json
           if-no-files-found: warn

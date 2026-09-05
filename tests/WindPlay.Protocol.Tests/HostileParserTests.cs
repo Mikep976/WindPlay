@@ -148,6 +148,38 @@ public sealed class HostileParserTests
         }
     }
 
+    [Fact]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5394", Justification = "Reproducible structured parser mutations, not security secrets.")]
+    public void StructuredMutationsExerciseParserInternalsWithBoundedAllocation()
+    {
+        byte[][] seeds = [
+            BinaryPropertyListWriter.WriteToArray(NSObject.Wrap(new Dictionary<string, object>
+                { ["qualifier"] = (string[])["txtAirPlay", "txtRAOP"] })),
+            DnsWriter.Advertise("windplay.local", System.Net.IPAddress.Loopback,
+                [("_airplay._tcp.local", "WindPlay._airplay._tcp.local", 5000, [4, 112, 119, 61, 49])], 120),
+            Dmap("minm", 5, "music"u8.ToArray())];
+        var random = new Random(20260905);
+        var dmap = new DMapTagged();
+        for (int iteration = 0; iteration < 12000; iteration++)
+        {
+            int parser = iteration % seeds.Length;
+            byte[] bytes = seeds[parser].ToArray();
+            int mutations = 1 + random.Next(4);
+            for (int change = 0; change < mutations; change++) bytes[random.Next(bytes.Length)] = (byte)random.Next(256);
+            if (iteration % 7 == 0) bytes = bytes[..random.Next(bytes.Length + 1)];
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            try
+            {
+                if (parser == 0) _ = BoundedPlist.Parse(bytes);
+                else if (parser == 1) _ = DnsPacket.Parse(bytes);
+                else _ = dmap.Decode(bytes);
+            }
+            catch (InvalidDataException) { }
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.True(allocated < 2 * 1024 * 1024, $"Parser {parser}, mutation {iteration}: {allocated} allocated bytes.");
+        }
+    }
+
     internal static byte[] Plist(params byte[][] objects)
     {
         using MemoryStream stream = new(); stream.Write("bplist00"u8);

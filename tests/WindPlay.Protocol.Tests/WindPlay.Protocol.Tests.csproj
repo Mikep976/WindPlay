@@ -8,11 +8,21 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
+    <DefineConstants>$(DefineConstants);WINDPLAY_WINDOWS_TESTS</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
+    <Compile Include="../../src/WindPlay.App/Security/IdentityStore.cs" Link="App/IdentityStore.cs" />
+    <Compile Include="../../src/WindPlay.App/Configuration/SettingsStore.cs" Link="App/SettingsStore.cs" />
+    <Compile Include="../../src/WindPlay.App/Configuration/ReceiverSettings.cs" Link="App/ReceiverSettings.cs" />
   </ItemGroup>
 
   <ItemGroup>

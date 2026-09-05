@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Globalization;
+using System.Runtime.Versioning;
 using AirPlay.Core2.Security;
 using WindPlay.App.Configuration;
 
@@ -9,6 +9,7 @@ namespace WindPlay.App.Security;
 
 public sealed record ReceiverSecrets(ReceiverIdentity Identity, string Passcode);
 
+[SupportedOSPlatform("windows")]
 public static class IdentityStore
 {
     private static readonly byte[] AdditionalEntropy = SHA256.HashData(
@@ -63,9 +64,10 @@ public static class IdentityStore
         byte[] protectedSeed = Convert.FromBase64String(document.ProtectedSigningSeed);
         byte[] protectedPasscode = Convert.FromBase64String(document.ProtectedPasscode);
         byte[] seed = ProtectedData.Unprotect(protectedSeed, AdditionalEntropy, DataProtectionScope.CurrentUser);
-        byte[] passcodeBytes = ProtectedData.Unprotect(protectedPasscode, AdditionalEntropy, DataProtectionScope.CurrentUser);
+        byte[] passcodeBytes = [];
         try
         {
+            passcodeBytes = ProtectedData.Unprotect(protectedPasscode, AdditionalEntropy, DataProtectionScope.CurrentUser);
             string passcode = Encoding.UTF8.GetString(passcodeBytes);
             if (rotatePassword || (passcode.Length == 4 && passcode.All(char.IsAsciiDigit)))
             {

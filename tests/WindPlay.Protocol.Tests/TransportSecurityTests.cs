@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Buffers.Binary;
+using AirPlay.Core2.Models;
 using AirPlay.Core2.Models.Messages.Rtsp;
 using AirPlay.Core2.Security;
 using Xunit;
@@ -98,6 +100,26 @@ public sealed class TransportSecurityTests
         using var stream = new HeaderThenStallStream([1]);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => MirrorLimits.ReadExactlyAsync(stream,
             new byte[128], TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task InvalidMirrorHeaderDisconnectsOwningSessionBeforeReadingPayload()
+    {
+        using var session = new DeviceSession(new byte[16], new byte[32], 7001, IPAddress.Loopback)
+        { DacpId = "ABC", ActiveRemote = "123", DeviceDisplayName = "test", DeviceMacAddress = "test", LocalAddress = IPAddress.Loopback };
+        var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.DisconnectRequested += (_, _) => disconnected.TrySetResult();
+        session.CreateMirrorController("1");
+        session.MirrorController!.BeginConnectionWorkers();
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, session.MirrorController.DataPort, TestContext.Current.CancellationToken);
+        byte[] header = new byte[128];
+        BinaryPrimitives.WriteUInt32LittleEndian(header, 16 * 1024 * 1024);
+        BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(4), 2);
+        await client.GetStream().WriteAsync(header, TestContext.Current.CancellationToken);
+        // No payload is sent: waiting for attacker-controlled bytes would time out this test.
+        await disconnected.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        Assert.True(session.RequestedDisconnect);
     }
 
     [Theory]
