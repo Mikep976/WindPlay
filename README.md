@@ -5,7 +5,7 @@ WindPlay is an experimental Windows 11 AirPlay receiver targeting native Windows
 > [!IMPORTANT]
 > WindPlay is an independent, unofficial implementation. It is not affiliated with or endorsed by Apple Inc. Protected FairPlay/DRM video is intentionally out of scope.
 
-**Do not install the run-14 artifact.** Its security review identified release-blocking parsers. Remediation is in progress and ARM64 packaging is held by explicit release gates. See [docs/SECURITY-REMEDIATION.md](docs/SECURITY-REMEDIATION.md) for findings, tests and unresolved requirements.
+**Do not install the run-14 artifact.** Its security review identified release-blocking parsers. Runtime findings WP-01 through WP-07 are now implemented and regression-tested; publisher/provenance assurance remains incomplete and ARM64 packaging is held by explicit release gates. See [docs/SECURITY-REMEDIATION.md](docs/SECURITY-REMEDIATION.md) for findings, tests and unresolved requirements.
 
 ## Privacy defaults
 
@@ -16,7 +16,7 @@ WindPlay is an experimental Windows 11 AirPlay receiver targeting native Windows
 
 ## Build
 
-Prerequisites: .NET 10 SDK, Visual Studio 2026 with the Windows application development workload, and Windows SDK 10.0.28000 or later.
+Prerequisites: the pinned .NET SDK 10.0.400, Visual Studio with the Windows application development and MSVC ARM64 workloads, and Windows SDK 10.0.26100.0 or later.
 
 ```powershell
 dotnet restore WindPlay.slnx

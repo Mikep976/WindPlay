@@ -10,8 +10,8 @@
     "hardwareInteroperability": false
   },
   "evidence": {
-    "testedSourceCommit": "bc5b39c4eff4249e7a2d6ad2d3ee8019776f33e5",
-    "ciRun": "https://github.com/Mikep976/WindPlay/actions/runs/33972034817",
+    "testedSourceCommit": "49a2a621fcaa061aed944e5975a6ceebcde0fdab",
+    "ciRun": "https://github.com/Mikep976/WindPlay/actions/runs/33972881336",
     "linuxTests": 146,
     "windowsTests": 150,
     "windowsUiCompile": "x64, zero warnings/errors; not an ARM64 build",

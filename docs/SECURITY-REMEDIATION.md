@@ -36,7 +36,7 @@ These are availability budgets, not a claim that a receiver can resist arbitrary
 
 ## Verification evidence
 
-Verified source commit: [`bc5b39c4eff4249e7a2d6ad2d3ee8019776f33e5`](https://github.com/Mikep976/WindPlay/commit/bc5b39c4eff4249e7a2d6ad2d3ee8019776f33e5). [Clean CI run 33972034817](https://github.com/Mikep976/WindPlay/actions/runs/33972034817) completed successfully on 5 September 2026.
+Verified source commit: [`49a2a621fcaa061aed944e5975a6ceebcde0fdab`](https://github.com/Mikep976/WindPlay/commit/49a2a621fcaa061aed944e5975a6ceebcde0fdab). [Clean CI run 33972881336](https://github.com/Mikep976/WindPlay/actions/runs/33972881336) completed successfully on 5 September 2026.
 
 | Check | Result |
 |---|---|
@@ -48,13 +48,14 @@ Verified source commit: [`bc5b39c4eff4249e7a2d6ad2d3ee8019776f33e5`](https://git
 | Parser regressions | Includes 2,000 deterministic random inputs plus 12,000 structured mutations of valid plist/DNS/DMap inputs with per-invocation allocation assertions |
 | Source gate / whitespace | `python3 eng/security_gate.py` and `git diff --check` passed |
 | Dependency inventory | CycloneDX dependency-only inventory generated for 53 locked application/protocol packages |
+| Unsigned-output rejection | Passed on Windows: actual x64 build rejected by the publisher verifier |
 | ARM64 release gate | Fails closed as expected; signing/attestation and remaining assurance gates are unresolved |
 
 The first mutation run exposed a DMap invalid-UTF-8 exception-contract inconsistency, not an unbounded allocation. The corrected parser now validates UTF-8 before string decoding, and the full corpus passes. New SPS tests also reject an embedded Annex-B start-code bypass, and a separate rate budget bounds expensive decoder reconfiguration.
 
 The malformed corpus is regression/mutation testing, **not coverage-guided fuzzing**. No destructive payload was run against the vulnerable baseline and no private artifact was uploaded to a public scanning service. Earlier local results (82/136 tests) are superseded by the clean CI evidence above.
 
-Local dependency-cache and execution-approval failures did not require the user to weaken permissions; validation ran in the existing repository's clean CI environment. The code and evidence summary are persisted in [PR #1](https://github.com/Mikep976/WindPlay/pull/1). Subsequent documentation/release-verifier commits do not change the tested receiver code.
+Local dependency-cache and execution-approval failures did not require the user to weaken permissions; validation ran in the existing repository's clean CI environment. The code and evidence summary are persisted in [PR #1](https://github.com/Mikep976/WindPlay/pull/1). The final run also compiled the password-panel layout fix and verified that unsigned output is rejected. Subsequent evidence-only documentation commits do not change the tested receiver code.
 
 ## Outstanding release authority and assurance
 
