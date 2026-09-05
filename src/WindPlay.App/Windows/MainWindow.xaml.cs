@@ -164,10 +164,12 @@ public sealed partial class MainWindow : Window
 
     private void CopyNameButton_Click(object sender, RoutedEventArgs e) => CopyText(_receiver.Settings.ReceiverName);
 
-    private async void CopyPasscodeButton_Click(object sender, RoutedEventArgs e)
+    private async void RotatePasswordButton_Click(object sender, RoutedEventArgs e)
     {
+        RotatePasswordButton.IsEnabled = false;
         try { await _receiver.RotatePasswordAsync(); PasscodeText.Text = _receiver.Passcode; }
         catch (Exception exception) { ErrorBar.Title = "Password was not changed"; ErrorBar.Message = exception.Message; ErrorBar.IsOpen = true; }
+        finally { RotatePasswordButton.IsEnabled = true; }
     }
 
     private static void CopyText(string value)

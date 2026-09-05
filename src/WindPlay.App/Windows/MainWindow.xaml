@@ -175,21 +175,22 @@
                             <Border Grid.Column="1" Style="{StaticResource CardStyle}">
                                 <StackPanel Spacing="12">
                                     <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Private connection" />
-                                    <TextBlock Foreground="{ThemeResource SecondaryTextBrush}" Text="Enter this passcode when your Apple device asks. It stays encrypted for your Windows account." TextWrapping="Wrap" />
+                                    <TextBlock Foreground="{ThemeResource SecondaryTextBrush}" Text="Enter all 20 characters when your Apple device asks. This password is stored encrypted for your Windows account." TextWrapping="Wrap" />
                                     <Border Padding="16" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="12">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="12">
                                             <TextBlock
                                                 x:Name="PasscodeText"
                                                 FontFamily="Cascadia Mono"
                                                 FontSize="20"
                                                 FontWeight="SemiBold"
                                                 CharacterSpacing="30"
+                                                TextWrapping="Wrap"
                                                 Text="••••" />
-                                            <Button Grid.Column="1" Style="{StaticResource TouchButtonStyle}" Click="CopyPasscodeButton_Click">
+                                            <Button x:Name="RotatePasswordButton" Style="{StaticResource TouchButtonStyle}" Click="RotatePasswordButton_Click">
                                                 <TextBlock Text="New password" />
                                             </Button>
-                                        </Grid>
+                                            <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource SecondaryTextBrush}" Text="Changing the password disconnects current sessions." TextWrapping="Wrap" />
+                                        </StackPanel>
                                     </Border>
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon Foreground="{ThemeResource SystemFillColorSuccessBrush}" Glyph="&#xE73E;" />
